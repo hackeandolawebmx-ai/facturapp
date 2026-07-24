@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FacturasMX — Archivo fiscal 2026</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Serif:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --papel:#F7F5F0;        /* fondo papel cálido */
+    --tinta:#141E2C;        /* azul-negro de tinta */
+    --tinta-suave:#4A5568;  /* texto secundario */
+    --regla:#D9D4C8;        /* líneas regladas del libro */
+    --guinda:#7C2140;       /* advertencias — guiño SAT */
+    --guinda-fondo:#F6E9ED;
+    --sello:#1E6B45;        /* verde sello: válida */
+    --sello-fondo:#E7F1EB;
+    --ambar:#8A5A00;        /* por revisar */
+    --ambar-fondo:#F5EDDB;
+    --blanco:#FFFFFF;
+    --sombra:0 1px 3px rgba(20,30,44,.08);
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html{font-size:16px}
+  body{background:var(--papel);color:var(--tinta);font-family:'IBM Plex Sans',sans-serif;line-height:1.5}
+  a{color:inherit}
+  button{font:inherit;cursor:pointer}
+  :focus-visible{outline:2px solid var(--tinta);outline-offset:2px}
+  @media (prefers-reduced-motion: reduce){*{transition:none!important;animation:none!important}}
+
+  /* ---------- Barra superior ---------- */
+  .topbar{display:flex;align-items:center;gap:1rem;padding:.9rem 1.5rem;border-bottom:1px solid var(--regla);background:var(--blanco)}
+  .marca{font-family:'IBM Plex Serif',serif;font-weight:700;font-size:1.15rem;letter-spacing:-.01em}
+  .marca span{color:var(--guinda)}
+  .rfc{margin-left:auto;font-family:'IBM Plex Mono',monospace;font-size:.8rem;color:var(--tinta-suave)}
+  .selector-anio{border:1px solid var(--regla);background:var(--papel);border-radius:4px;padding:.3rem .6rem;font-family:'IBM Plex Mono',monospace;font-size:.85rem}
+
+  .contenido{max-width:1080px;margin:0 auto;padding:2rem 1.5rem 4rem}
+
+  /* ---------- Cédula de deducciones (elemento firma) ---------- */
+  .cedula{background:var(--blanco);border:1px solid var(--regla);border-radius:6px;box-shadow:var(--sombra);margin-bottom:2rem;overflow:hidden}
+  .cedula-encabezado{display:flex;align-items:baseline;justify-content:space-between;gap:1rem;padding:1.1rem 1.5rem .6rem;flex-wrap:wrap}
+  .cedula-titulo{font-family:'IBM Plex Serif',serif;font-weight:600;font-size:1.35rem}
+  .cedula-nota{font-size:.8rem;color:var(--tinta-suave)}
+  .cedula-lineas{padding:0 1.5rem}
+  .linea{display:grid;grid-template-columns:1fr auto auto;align-items:baseline;gap:1rem;padding:.55rem 0;border-top:1px dotted var(--regla)}
+  .linea:first-child{border-top:none}
+  .linea-cat{font-size:.92rem}
+  .linea-num{font-size:.75rem;color:var(--tinta-suave)}
+  .linea-monto{font-family:'IBM Plex Mono',monospace;font-size:.95rem;text-align:right;min-width:7.5rem}
+  .linea.total{border-top:2px solid var(--tinta);margin-top:.3rem;padding-top:.75rem;font-weight:600}
+  .linea.total .linea-monto{font-weight:500;font-size:1.05rem}
+  .tope{padding:1rem 1.5rem 1.3rem}
+  .tope-etiqueta{display:flex;justify-content:space-between;font-size:.78rem;color:var(--tinta-suave);margin-bottom:.4rem}
+  .tope-barra{height:6px;background:var(--papel);border:1px solid var(--regla);border-radius:3px;overflow:hidden}
+  .tope-avance{height:100%;width:34%;background:var(--tinta);border-radius:3px 0 0 3px}
+
+  /* ---------- Filtros ---------- */
+  .filtros{display:flex;gap:.6rem;flex-wrap:wrap;margin-bottom:1rem;align-items:center}
+  .filtro{border:1px solid var(--regla);background:var(--blanco);border-radius:4px;padding:.45rem .7rem;font-size:.85rem;color:var(--tinta)}
+  .buscador{flex:1;min-width:200px}
+  .buscador input{width:100%;border:1px solid var(--regla);background:var(--blanco);border-radius:4px;padding:.45rem .7rem;font-size:.85rem;font-family:inherit}
+  .buscador input::placeholder{color:var(--tinta-suave)}
+
+  /* ---------- Tabla / archivo ---------- */
+  .archivo{background:var(--blanco);border:1px solid var(--regla);border-radius:6px;box-shadow:var(--sombra);overflow-x:auto}
+  table{width:100%;border-collapse:collapse;min-width:760px}
+  thead th{text-align:left;font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;color:var(--tinta-suave);font-weight:600;padding:.7rem .9rem;border-bottom:1px solid var(--regla)}
+  tbody td{padding:.75rem .9rem;border-bottom:1px dotted var(--regla);font-size:.88rem;vertical-align:middle}
+  tbody tr:last-child td{border-bottom:none}
+  tbody tr:hover{background:var(--papel)}
+  .col-check{width:2.2rem}
+  .fecha,.monto,.folio{font-family:'IBM Plex Mono',monospace;font-size:.82rem}
+  .monto{text-align:right;white-space:nowrap}
+  .folio{color:var(--tinta-suave)}
+  .emisor{font-weight:500}
+  .emisor small{display:block;font-weight:400;color:var(--tinta-suave);font-size:.76rem}
+
+  .chip{display:inline-block;font-size:.72rem;font-weight:600;padding:.18rem .55rem;border-radius:99px;white-space:nowrap}
+  .chip.medicos{background:#E8EDF5;color:#28406B}
+  .chip.colegiaturas{background:#EFE9F5;color:#4C3570}
+  .chip.seguros{background:#E9F2F2;color:#20565A}
+  .chip.hipoteca{background:#F1EEE4;color:#5C5230}
+
+  .estatus{display:inline-flex;align-items:center;gap:.35rem;font-size:.76rem;font-weight:600;padding:.2rem .6rem;border-radius:3px}
+  .estatus::before{content:"";width:7px;height:7px;border-radius:50%}
+  .estatus.valida{background:var(--sello-fondo);color:var(--sello)}
+  .estatus.valida::before{background:var(--sello)}
+  .estatus.advertencia{background:var(--guinda-fondo);color:var(--guinda)}
+  .estatus.advertencia::before{background:var(--guinda)}
+  .estatus.revisar{background:var(--ambar-fondo);color:var(--ambar)}
+  .estatus.revisar::before{background:var(--ambar)}
+
+  .fila-advertencia td{border-bottom:none;padding-bottom:.2rem}
+  .detalle-advertencia td{padding-top:0;font-size:.78rem;color:var(--guinda)}
+  .detalle-advertencia .caja{background:var(--guinda-fondo);border-left:3px solid var(--guinda);border-radius:0 4px 4px 0;padding:.5rem .8rem;display:inline-block}
+
+  .acciones a{font-size:.78rem;font-weight:600;text-decoration:none;border:1px solid var(--regla);border-radius:4px;padding:.25rem .55rem;margin-right:.3rem;background:var(--blanco);transition:border-color .15s}
+  .acciones a:hover{border-color:var(--tinta)}
+
+  /* ---------- Barra de selección ---------- */
+  .barra-seleccion{position:sticky;bottom:1rem;margin-top:1.2rem;display:flex;align-items:center;gap:1rem;background:var(--tinta);color:var(--papel);border-radius:6px;padding:.8rem 1.2rem;box-shadow:0 4px 14px rgba(20,30,44,.25)}
+  .barra-seleccion .conteo{font-size:.85rem}
+  .barra-seleccion .conteo strong{font-family:'IBM Plex Mono',monospace}
+  .btn-zip{margin-left:auto;background:var(--papel);color:var(--tinta);border:none;border-radius:4px;padding:.5rem 1rem;font-weight:600;font-size:.85rem}
+  .btn-zip:hover{background:var(--blanco)}
+  .btn-secundario{background:transparent;color:var(--papel);border:1px solid rgba(247,245,240,.4);border-radius:4px;padding:.5rem .9rem;font-size:.85rem}
+
+  @media (max-width:640px){
+    .contenido{padding:1.2rem 1rem 3rem}
+    .cedula-encabezado,.cedula-lineas,.tope{padding-left:1rem;padding-right:1rem}
+    .linea{grid-template-columns:1fr auto}
+    .linea-num{display:none}
+  }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="marca">Facturas<span>MX</span></div>
+  <select class="selector-anio" aria-label="Ejercicio fiscal">
+    <option>Ejercicio 2026</option>
+    <option>Ejercicio 2025</option>
+  </select>
+  <div class="rfc">RFC DAXX860715XX0</div>
+</header>
+
+<main class="contenido">
+
+  <!-- Cédula de deducciones — elemento firma -->
+  <section class="cedula" aria-label="Cédula de deducciones 2026">
+    <div class="cedula-encabezado">
+      <h1 class="cedula-titulo">Cédula de deducciones · 2026</h1>
+      <p class="cedula-nota" id="cedula-nota">Cargando…</p>
+    </div>
+    <div class="cedula-lineas" id="cedula-lineas">
+      <div class="linea">
+        <span class="linea-cat">Gastos médicos y dentales</span>
+        <span class="linea-num">12 facturas</span>
+        <span class="linea-monto">$18,940.00</span>
+      </div>
+      <div class="linea">
+        <span class="linea-cat">Colegiaturas</span>
+        <span class="linea-num">6 facturas</span>
+        <span class="linea-monto">$21,600.00</span>
+      </div>
+      <div class="linea">
+        <span class="linea-cat">Primas de seguros de gastos médicos</span>
+        <span class="linea-num">2 facturas</span>
+        <span class="linea-monto">$9,780.00</span>
+      </div>
+      <div class="linea">
+        <span class="linea-cat">Intereses reales · crédito hipotecario</span>
+        <span class="linea-num">3 constancias</span>
+        <span class="linea-monto">$11,215.00</span>
+      </div>
+      <div class="linea total">
+        <span class="linea-cat">Total deducible acumulado</span>
+        <span class="linea-num"></span>
+        <span class="linea-monto">$61,535.00</span>
+      </div>
+    </div>
+    <div class="tope">
+      <div class="tope-etiqueta">
+        <span>Avance hacia tu tope estimado de deducciones personales</span>
+        <span>34% de $198,031</span>
+      </div>
+      <div class="tope-barra"><div class="tope-avance" role="progressbar" aria-valuenow="34" aria-valuemin="0" aria-valuemax="100" aria-label="34 por ciento del tope"></div></div>
+    </div>
+  </section>
+
+  <!-- Filtros -->
+  <div class="filtros">
+    <select class="filtro" aria-label="Filtrar por mes">
+      <option>Todos los meses</option>
+      <option>Julio</option><option>Junio</option><option>Mayo</option>
+    </select>
+    <select class="filtro" aria-label="Filtrar por categoría">
+      <option>Todas las categorías</option>
+      <option>Gastos médicos</option><option>Colegiaturas</option><option>Seguros GMM</option><option>Hipoteca</option>
+    </select>
+    <select class="filtro" aria-label="Filtrar por estatus">
+      <option>Todos los estatus</option>
+      <option>Válida</option><option>Con advertencia</option><option>Por revisar</option>
+    </select>
+    <div class="buscador"><input type="search" placeholder="Buscar por emisor, RFC o folio fiscal" aria-label="Buscar facturas"></div>
+  </div>
+
+  <!-- Archivo de facturas -->
+  <section class="archivo" aria-label="Facturas archivadas">
+    <table>
+      <thead>
+        <tr>
+          <th class="col-check"><input type="checkbox" aria-label="Seleccionar todas"></th>
+          <th>Fecha</th>
+          <th>Emisor</th>
+          <th>Folio fiscal</th>
+          <th>Categoría</th>
+          <th>Estatus</th>
+          <th style="text-align:right">Monto</th>
+          <th>Archivos</th>
+        </tr>
+      </thead>
+      <tbody id="tbody-facturas">
+        <tr>
+          <td><input type="checkbox" checked aria-label="Seleccionar factura de Farmacia San Pablo"></td>
+          <td class="fecha">12·JUL·26</td>
+          <td class="emisor">Farmacia San Pablo<small>FSP830920XXX</small></td>
+          <td class="folio">A4F2…9C1D</td>
+          <td><span class="chip medicos">Médicos</span></td>
+          <td><span class="estatus valida">Válida</span></td>
+          <td class="monto">$1,240.00</td>
+          <td class="acciones"><a href="#">XML</a><a href="#">PDF</a></td>
+        </tr>
+        <tr class="fila-advertencia">
+          <td><input type="checkbox" aria-label="Seleccionar factura de Dr. Alejandro Ruiz"></td>
+          <td class="fecha">08·JUL·26</td>
+          <td class="emisor">Dr. Alejandro Ruiz · Dental<small>RUAA791102XXX</small></td>
+          <td class="folio">7B3E…D204</td>
+          <td><span class="chip medicos">Médicos</span></td>
+          <td><span class="estatus advertencia">Advertencia</span></td>
+          <td class="monto">$3,800.00</td>
+          <td class="acciones"><a href="#">XML</a><a href="#">PDF</a></td>
+        </tr>
+        <tr class="detalle-advertencia">
+          <td></td>
+          <td colspan="7"><span class="caja">FormaPago "01 Efectivo": no será deducible. Pide la refacturación con pago electrónico antes del cierre del mes.</span></td>
+        </tr>
+        <tr>
+          <td><input type="checkbox" checked aria-label="Seleccionar factura de Colegio Regiomontano"></td>
+          <td class="fecha">01·JUL·26</td>
+          <td class="emisor">Colegio Regiomontano AC<small>CRE640518XXX</small></td>
+          <td class="folio">E921…44AF</td>
+          <td><span class="chip colegiaturas">Colegiaturas</span></td>
+          <td><span class="estatus valida">Válida</span></td>
+          <td class="monto">$3,600.00</td>
+          <td class="acciones"><a href="#">XML</a><a href="#">PDF</a></td>
+        </tr>
+        <tr>
+          <td><input type="checkbox" checked aria-label="Seleccionar factura de GNP Seguros"></td>
+          <td class="fecha">28·JUN·26</td>
+          <td class="emisor">GNP Seguros<small>GNP921124XXX</small></td>
+          <td class="folio">1C88…B7E3</td>
+          <td><span class="chip seguros">Seguros GMM</span></td>
+          <td><span class="estatus valida">Válida</span></td>
+          <td class="monto">$4,890.00</td>
+          <td class="acciones"><a href="#">XML</a><a href="#">PDF</a></td>
+        </tr>
+        <tr>
+          <td><input type="checkbox" aria-label="Seleccionar constancia de Banorte"></td>
+          <td class="fecha">15·JUN·26</td>
+          <td class="emisor">Banorte · Constancia de intereses<small>BNM840515XXX</small></td>
+          <td class="folio">9D07…21CA</td>
+          <td><span class="chip hipoteca">Hipoteca</span></td>
+          <td><span class="estatus revisar">Por revisar</span></td>
+          <td class="monto">$3,738.33</td>
+          <td class="acciones"><a href="#">PDF</a></td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- Barra de selección -->
+  <div class="barra-seleccion" role="region" aria-label="Acciones sobre facturas seleccionadas">
+    <span class="conteo"><strong>3</strong> facturas seleccionadas · $9,730.00</span>
+    <button class="btn-secundario">Exportar Excel</button>
+    <button class="btn-zip">Descargar ZIP (XML + PDF)</button>
+  </div>
+
+</main>
+
+<script>
+(function () {
+  var YEAR = 2026;
+  // El token viene en la URL: /a/{token}
+  var TOKEN = decodeURIComponent((location.pathname.split("/a/")[1] || "").replace(/\/$/, ""));
+  var CHIP = { "Médicos": "medicos", "Colegiaturas": "colegiaturas", "Seguros GMM": "seguros", "Hipoteca": "hipoteca" };
+  var ESTATUS = { "valida": ["valida", "Válida"], "advertencia": ["advertencia", "Advertencia"], "por_revisar": ["revisar", "Por revisar"], "rechazada": ["revisar", "Rechazada"] };
+
+  function money(n) {
+    return "$" + (n || 0).toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+  function fechaCorta(iso) {
+    if (!iso) return "";
+    var m = ["ENE","FEB","MAR","ABR","MAY","JUN","JUL","AGO","SEP","OCT","NOV","DIC"];
+    var p = iso.split("-");
+    return p[2] + "·" + m[parseInt(p[1], 10) - 1] + "·" + p[0].slice(2);
+  }
+  function folioCorto(u) {
+    if (!u) return "";
+    return u.slice(0, 4) + "…" + u.slice(-4);
+  }
+
+  async function cargar() {
+    try {
+      var qs = "token=" + encodeURIComponent(TOKEN) + "&year=" + YEAR;
+      var [sres, ires] = await Promise.all([
+        fetch("/api/public/summary?" + qs),
+        fetch("/api/public/invoices?" + qs)
+      ]);
+      var summary = await sres.json();
+      var data = await ires.json();
+      pintarCedula(summary);
+      pintarTabla(data.invoices || []);
+    } catch (e) {
+      document.getElementById("cedula-nota").textContent = "No se pudieron cargar los datos.";
+    }
+  }
+
+  function pintarCedula(s) {
+    var cont = document.getElementById("cedula-lineas");
+    var cats = s.categorias || {};
+    var html = "";
+    Object.keys(cats).forEach(function (cat) {
+      var c = cats[cat];
+      html += '<div class="linea"><span class="linea-cat">' + cat + '</span>' +
+              '<span class="linea-num">' + c.facturas + ' factura' + (c.facturas === 1 ? '' : 's') + '</span>' +
+              '<span class="linea-monto">' + money(c.total) + '</span></div>';
+    });
+    html += '<div class="linea total"><span class="linea-cat">Total deducible acumulado</span>' +
+            '<span class="linea-num"></span><span class="linea-monto">' + money(s.total_general) + '</span></div>';
+    cont.innerHTML = html;
+    document.getElementById("cedula-nota").textContent =
+      "Actualizada hoy · " + (s.num_facturas || 0) + " facturas archivadas";
+  }
+
+  function pintarTabla(invoices) {
+    var tb = document.getElementById("tbody-facturas");
+    if (!invoices.length) {
+      tb.innerHTML = '<tr><td></td><td colspan="7">Aún no hay facturas archivadas.</td></tr>';
+      return;
+    }
+    tb.innerHTML = invoices.map(function (inv) {
+      var chip = CHIP[inv.categoria] || "";
+      var est = ESTATUS[inv.estatus] || ["revisar", inv.estatus];
+      var fila = est[0] === "advertencia" ? ' class="fila-advertencia"' : '';
+      var row = '<tr' + fila + '>' +
+        '<td><input type="checkbox" aria-label="Seleccionar"></td>' +
+        '<td class="fecha">' + fechaCorta(inv.fecha_emision) + '</td>' +
+        '<td class="emisor">' + escapeHtml(inv.emisor_nombre) + '<small>' + escapeHtml(inv.emisor_rfc) + '</small></td>' +
+        '<td class="folio">' + folioCorto(inv.uuid) + '</td>' +
+        '<td><span class="chip ' + chip + '">' + escapeHtml(inv.categoria) + '</span></td>' +
+        '<td><span class="estatus ' + est[0] + '">' + est[1] + '</span></td>' +
+        '<td class="monto">' + money(inv.total) + '</td>' +
+        '<td class="acciones"><a href="#">XML</a></td>' +
+      '</tr>';
+      if (inv.hallazgos && inv.hallazgos.length) {
+        row += '<tr class="detalle-advertencia"><td></td><td colspan="7">' +
+          inv.hallazgos.map(function (h) { return '<span class="caja">' + escapeHtml(h.mensaje) + '</span>'; }).join(' ') +
+          '</td></tr>';
+      }
+      return row;
+    }).join("");
+  }
+
+  function escapeHtml(s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
+
+  cargar();
+})();
+</script>
+</body>
+</html>

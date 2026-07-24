@@ -1,0 +1,20 @@
+# Secrets
+.env
+*.env
+!.env.example
+.env.local
+.env.*.local
+
+# Bases de datos locales
+*.db
+*.sqlite
+*.sqlite3
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Logs (Fase 2b)
+logs/
