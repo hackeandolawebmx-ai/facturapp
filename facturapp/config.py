@@ -64,7 +64,7 @@ def setup_logging() -> logging.Logger:
     if logger.handlers:
         return logger
 
-    logger.setLevel(logging.INFO)
+    logger.setLevel(logging.WARNING)
     _LOG_DIR.mkdir(exist_ok=True)
 
     handler = RotatingFileHandler(
