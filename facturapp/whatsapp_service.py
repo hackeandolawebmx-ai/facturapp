@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import logging
 import secrets
 
 import httpx
@@ -26,6 +27,8 @@ from .accounts import placeholder_rfc
 from .auth import generate_web_token, hash_password
 from .models import User
 from .schemas import WhatsAppWebhookPayload
+
+logger = logging.getLogger(__name__)
 
 _GRAPH_API_BASE = "https://graph.facebook.com/v19.0"
 
@@ -40,11 +43,18 @@ def verify_whatsapp_signature(body: bytes, signature_header: str | None, app_sec
     IMPORTANTE: `app_secret` es el App Secret de la app de Meta, NO el
     "verify token" usado en el handshake GET — son dos secretos distintos.
     """
+    logger.info(f"[VERIFY] Verificando firma HMAC. Header: {signature_header[:20] if signature_header else 'None'}...")
+    
     if not signature_header or not signature_header.startswith("sha256="):
+        logger.warning("[VERIFY] Header inválido o faltante")
         return False
+    
     expected = hmac.new(app_secret.encode("utf-8"), body, hashlib.sha256).hexdigest()
     provided = signature_header.split("=", 1)[1]
-    return hmac.compare_digest(expected, provided)
+    
+    is_valid = hmac.compare_digest(expected, provided)
+    logger.info(f"[VERIFY] Firma válida: {is_valid}")
+    return is_valid
 
 
 # --------------------------------------------------------------------------
@@ -57,10 +67,14 @@ def extract_whatsapp_messages(payload: WhatsAppWebhookPayload | dict) -> list[di
 
     Cada resultado: {"from", "media_id", "mime_type", "filename", "profile_name"}.
     """
+    logger.info("[EXTRACT] Extrayendo mensajes del payload")
+    
     if isinstance(payload, WhatsAppWebhookPayload):
         entries = payload.entry
     else:
         entries = payload.get("entry", [])
+
+    logger.info(f"[EXTRACT] Total entries: {len(entries)}")
 
     results: list[dict] = []
     for entry in entries:
@@ -70,21 +84,37 @@ def extract_whatsapp_messages(payload: WhatsAppWebhookPayload | dict) -> list[di
             profile_names = {
                 c.get("wa_id"): c.get("profile", {}).get("name") for c in contacts
             }
-            for msg in value.get("messages", []):
-                if msg.get("type") != "document":
+            messages = value.get("messages", [])
+            logger.info(f"[EXTRACT] Mensajes en este change: {len(messages)}")
+            
+            for msg in messages:
+                msg_type = msg.get("type")
+                logger.info(f"[EXTRACT] Tipo de mensaje: {msg_type}")
+                
+                if msg_type != "document":
+                    logger.debug(f"[EXTRACT] Ignorando mensaje de tipo {msg_type}")
                     continue
+                
                 document = msg.get("document", {})
                 media_id = document.get("id")
                 if not media_id:
+                    logger.warning("[EXTRACT] Documento sin media_id")
                     continue
+                
                 phone = msg.get("from", "")
-                results.append({
+                filename = document.get("filename") or "factura"
+                
+                result = {
                     "from": phone,
                     "media_id": media_id,
                     "mime_type": document.get("mime_type", ""),
-                    "filename": document.get("filename") or "factura",
+                    "filename": filename,
                     "profile_name": profile_names.get(phone),
-                })
+                }
+                logger.info(f"[EXTRACT] Documento capturado: {filename} (id={media_id[:20]}...) from {phone}")
+                results.append(result)
+    
+    logger.info(f"[EXTRACT] Total documentos extraídos: {len(results)}")
     return results
 
 
@@ -98,31 +128,58 @@ async def download_media_from_meta(media_id: str, token: str) -> tuple[bytes, st
     Meta requiere DOS llamadas: (1) resolver el media_id a una URL temporal
     de descarga, (2) descargar esa URL — ambas con el mismo Bearer token.
     """
-    headers = {"Authorization": f"Bearer {token}"}
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        meta_resp = await client.get(f"{_GRAPH_API_BASE}/{media_id}", headers=headers)
-        meta_resp.raise_for_status()
-        media_info = meta_resp.json()
+    logger.info(f"[DOWNLOAD] Iniciando descarga de media {media_id[:20]}...")
+    
+    headers = {"Authorization": f"Bearer {token[:10]}..."}  # Log sin exponer token completo
+    
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            logger.info(f"[DOWNLOAD] Paso 1: Obtener URL de {_GRAPH_API_BASE}/{media_id}")
+            meta_resp = await client.get(f"{_GRAPH_API_BASE}/{media_id}", headers=headers)
+            meta_resp.raise_for_status()
+            media_info = meta_resp.json()
+            logger.info(f"[DOWNLOAD] Paso 1 OK. URL resuelto")
 
-        content_resp = await client.get(media_info["url"], headers=headers)
-        content_resp.raise_for_status()
-        return content_resp.content, media_info.get("mime_type", "")
+            download_url = media_info.get("url", "")
+            logger.info(f"[DOWNLOAD] Paso 2: Descargar desde URL")
+            content_resp = await client.get(download_url, headers=headers)
+            content_resp.raise_for_status()
+            
+            content = content_resp.content
+            mime_type = media_info.get("mime_type", "")
+            
+            logger.info(f"[DOWNLOAD] Descarga completada: {len(content)} bytes, {mime_type}")
+            return content, mime_type
+    
+    except Exception as e:
+        logger.error(f"[DOWNLOAD] Error descargando media: {type(e).__name__}: {e}")
+        raise
 
 
 async def send_whatsapp_message(phone: str, message: str, token: str, phone_number_id: str) -> dict:
     """Envía un mensaje de texto de vuelta al usuario vía Graph API."""
+    logger.info(f"[SEND] Enviando mensaje a {phone}")
+    
     url = f"{_GRAPH_API_BASE}/{phone_number_id}/messages"
-    headers = {"Authorization": f"Bearer {token}"}
+    headers = {"Authorization": f"Bearer {token[:10]}..."}  # Log sin exponer token
     body = {
         "messaging_product": "whatsapp",
         "to": phone,
         "type": "text",
         "text": {"body": message},
     }
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        resp = await client.post(url, headers=headers, json=body)
-        resp.raise_for_status()
-        return resp.json()
+    
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(url, headers=headers, json=body)
+            resp.raise_for_status()
+            result = resp.json()
+            logger.info(f"[SEND] Mensaje enviado exitosamente. ID: {result.get('messages', [{}])[0].get('id', 'N/A')}")
+            return result
+    
+    except Exception as e:
+        logger.error(f"[SEND] Error enviando mensaje: {type(e).__name__}: {e}")
+        raise
 
 
 # --------------------------------------------------------------------------
@@ -136,11 +193,16 @@ def _placeholder_email_for_phone(phone: str) -> str:
 def get_or_create_user_by_phone(db: Session, phone: str, profile_name: str | None = None) -> User:
     """Busca al usuario por teléfono de WhatsApp; si no existe, crea una
     cuenta mínima (mismo patrón que get_or_create_user_by_email)."""
+    logger.info(f"[USER] Buscando usuario por teléfono: {phone}")
+    
     phone = phone.strip()
     user = db.query(User).filter(User.whatsapp_phone == phone).first()
+    
     if user is not None:
+        logger.info(f"[USER] Usuario encontrado: {user.id} ({user.email})")
         return user
 
+    logger.info(f"[USER] Usuario no encontrado. Creando cuenta mínima")
     email = _placeholder_email_for_phone(phone)
     user = User(
         email=email,
@@ -153,4 +215,5 @@ def get_or_create_user_by_phone(db: Session, phone: str, profile_name: str | Non
     db.add(user)
     db.commit()
     db.refresh(user)
+    logger.info(f"[USER] Cuenta creada: {user.id} ({email})")
     return user
