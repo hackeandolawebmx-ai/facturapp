@@ -76,7 +76,34 @@ def _anio_de(fecha_emision: str) -> int:
 async def health() -> dict:
     return {"status": "ok", "service": "facturapp", "fase": "2a"}
 
-
+@app.get("/privacy", response_class=HTMLResponse)
+async def privacy_policy() -> HTMLResponse:
+    return HTMLResponse("""
+    <!DOCTYPE html>
+    <html lang="es">
+    <head><meta charset="utf-8"><title>Aviso de Privacidad — FacturApp</title></head>
+    <body style="font-family: sans-serif; max-width: 700px; margin: 40px auto; padding: 0 20px;">
+        <h1>Aviso de Privacidad — FacturApp</h1>
+        <p>Última actualización: julio 2026</p>
+        <h2>Datos que recopilamos</h2>
+        <p>FacturApp recibe facturas electrónicas (CFDI) que el usuario envía
+        voluntariamente por WhatsApp o correo electrónico, junto con su número
+        de teléfono o dirección de email para identificar su cuenta.</p>
+        <h2>Uso de los datos</h2>
+        <p>Los datos se usan exclusivamente para organizar, validar y clasificar
+        las facturas del usuario con fines de deducción fiscal personal. No
+        vendemos ni compartimos datos con terceros.</p>
+        <h2>Almacenamiento</h2>
+        <p>Los datos se almacenan de forma segura y solo son accesibles por el
+        propio usuario mediante su cuenta.</p>
+        <h2>Eliminación de datos</h2>
+        <p>Puedes solicitar la eliminación de tus datos en cualquier momento
+        escribiendo a contacto@golfdynasty.mx.</p>
+        <h2>Contacto</h2>
+        <p>contacto@golfdynasty.mx</p>
+    </body>
+    </html>
+    """)
 # ==========================================================================
 # AUTH
 # ==========================================================================
