@@ -308,6 +308,12 @@ async def whatsapp_webhook_verify(request: Request) -> PlainTextResponse:
 
 @app.post("/webhooks/whatsapp")
 async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)) -> JSONResponse:
+    print("A", flush=True)  # ← Print 1
+    body = await request.body()
+    print("B", flush=True)  # ← Print 2
+    signature = request.headers.get("X-Hub-Signature-256")
+    print("C", flush=True)  # ← Print 3
+    # ... resto
     """Webhook público de Meta Cloud API..."""
     print(">>> WEBHOOK WHATSAPP RECIBIDO <<<", flush=True)  # ← CAMBIA A PRINT
     
