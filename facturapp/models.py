@@ -30,6 +30,7 @@ class User(Base):
     rfc = Column(String(13), unique=True, nullable=False, index=True)
     hashed_password = Column(String(255), nullable=False)
     web_token = Column(String(64), unique=True, index=True)
+    whatsapp_phone = Column(String(20), unique=True, nullable=True, index=True)
     plan = Column(String(20), default="free")
     created_at = Column(DateTime, default=_utcnow)
 
@@ -44,6 +45,7 @@ class User(Base):
             "rfc": self.rfc,
             "plan": self.plan,
             "web_token": self.web_token,
+            "whatsapp_phone": self.whatsapp_phone,
         }
 
 

@@ -40,6 +40,14 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     openai_model: str = "gpt-4o"
 
+    # --- WhatsApp (Meta Cloud API, Fase 3b) ---
+    whatsapp_token: str = ""              # access token (Graph API: descargar media + enviar mensajes)
+    whatsapp_verify_token: str = ""       # solo para el handshake GET de verificación del webhook
+    whatsapp_app_secret: str = ""         # firma HMAC-SHA256 del body (header X-Hub-Signature-256).
+                                           # NO es el mismo valor que whatsapp_verify_token.
+    whatsapp_phone_number_id: str = ""    # requerido por Graph API para enviar mensajes
+    whatsapp_business_account_id: str = ""
+
     # --- App ---
     debug: bool = True
     year_default: int = 2026

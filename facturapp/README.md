@@ -1,13 +1,16 @@
-# FacturasMX — Fase 2b
+# FacturasMX — Fase 3b
 
 Plataforma que consolida y valida facturas mexicanas (**CFDI 4.0**) para
 deducciones anuales. **Fase 2a** convirtió el MVP en un producto multiusuario
-(Supabase + JWT + chat con OpenAI); **Fase 2b** endurece la seguridad antes de
-conectar a Supabase en producción: rate limiting, refresh tokens, RFC estricto,
-manejo de errores de OpenAI y logging a archivo.
+(Supabase + JWT + chat con OpenAI); **Fase 2b** endureció la seguridad (rate
+limiting, refresh tokens, RFC estricto, manejo de errores de OpenAI, logging);
+**Fase 3a** agregó ingesta por **correo** (SendGrid); **Fase 3b** agrega
+ingesta por **WhatsApp** (Meta Cloud API) — reenviar la factura al número de
+negocio y recibir la respuesta ahí mismo.
 
 El **parser, validador y clasificador de Fase 1 no cambiaron** — solo se
-agregaron capas de auth, persistencia real, chat y seguridad encima.
+agregaron capas de auth, persistencia real, chat, seguridad e ingesta por
+correo/WhatsApp encima.
 
 ---
 
@@ -38,6 +41,12 @@ ACCESS_TOKEN_EXPIRE_MINUTES=60
 REFRESH_TOKEN_EXPIRE_DAYS=7
 OPENAI_API_KEY=sk-...
 OPENAI_MODEL=gpt-4o
+
+# WhatsApp (Meta Cloud API) — ver sección "Ingesta por WhatsApp" abajo
+WHATSAPP_TOKEN=<access token de Graph API>
+WHATSAPP_VERIFY_TOKEN=<string que tú inventas, para el handshake GET>
+WHATSAPP_APP_SECRET=<App Secret de tu app de Meta — NO es el verify token>
+WHATSAPP_PHONE_NUMBER_ID=<Phone Number ID del número de WhatsApp Business>
 ```
 
 > ⚠️ Si tu `.env` viene de Fase 2a, probablemente tenga
@@ -64,9 +73,10 @@ contraseña `password123`.
 pytest facturapp/tests -v
 ```
 
-**62 tests en verde** (41 de Fase 2a + 21 de Fase 2b). Corren offline: BD
-SQLite en-memory, el LLM mockeado y el rate limiter reseteado por test (no
-gastan API de OpenAI ni tocan Supabase).
+**91 tests en verde** (41 de Fase 2a + 21 de Fase 2b + 10 de Fase 3a + 19 de
+Fase 3b). Corren offline: BD SQLite en-memory, el LLM mockeado, el rate
+limiter reseteado por test, y las llamadas a la Graph API de Meta mockeadas
+(no gastan API de OpenAI ni tocan Supabase, SendGrid o Meta).
 
 ## Iniciar la aplicación
 
@@ -110,7 +120,10 @@ curl -X POST localhost:8000/api/chat -H "Authorization: Bearer $TOKEN" \
 | POST | `/auth/login` | — | Login → access_token (1 h) + refresh_token (7 d). Máx 5/min por IP. |
 | POST | `/auth/refresh` | Bearer (refresh) | Cambia un refresh_token por un access_token nuevo |
 | GET | `/api/user/profile` | Bearer | Perfil del usuario |
-| POST | `/webhooks/email` | Bearer | Ingesta CFDI/PDF (por usuario) |
+| POST | `/webhooks/email` | Bearer | Ingesta CFDI/PDF manual (usuario ya autenticado) |
+| POST | `/webhooks/sendgrid` | — (público) | Ingesta CFDI/PDF vía correo reenviado (SendGrid) |
+| GET | `/webhooks/whatsapp` | — (público) | Handshake de verificación del webhook (Meta) |
+| POST | `/webhooks/whatsapp` | — (público, firma HMAC) | Ingesta CFDI/PDF vía WhatsApp (Meta Cloud API) |
 | GET | `/api/summary` | Bearer | Cédula por categoría (solo tus datos) |
 | GET | `/api/invoices` | Bearer | Lista de facturas (solo tuyas) |
 | POST | `/api/invoices/{id}/reclassify` | Bearer | Reclasificar factura |
@@ -135,6 +148,76 @@ Todos los endpoints `/api/*` (salvo `/api/public/*`) requieren
 
 Cada herramienta consulta la BD **filtrando por `user.id`**. El modelo es
 configurable con `OPENAI_MODEL` (default `gpt-4o`).
+
+## Ingesta por correo (Fase 3a)
+
+Flujo: usuario reenvía su factura a `daniel@facturapp.mx` → SendGrid Inbound
+Parse → `POST /webhooks/sendgrid` → parser/validator/classifier (los mismos
+de Fase 1) → se guarda en `invoices`.
+
+- **Resolución de usuario por remitente** ([email_service.py](email_service.py)):
+  si el correo del remitente ya está registrado, se usa esa cuenta; si no,
+  se crea una **cuenta mínima** (RFC placeholder `PEND` + hash, contraseña
+  aleatoria inutilizable — no permite login directo). El usuario completa su
+  perfil real después. Extrae la dirección de formatos `"Nombre" <correo>`.
+- **Adjuntos**: JSON con `attachments: [{filename, content: base64}]`, se
+  clasifican por extensión (`.xml` / `.pdf`); si no hay ninguno reconocido,
+  responde `202` con `estatus: "sin_adjuntos"`.
+- **Distinto de `/webhooks/email`**: ese endpoint sigue siendo Bearer +
+  multipart, para cuando el propio usuario autenticado sube un archivo desde
+  el dashboard. `/webhooks/sendgrid` es público (SendGrid no puede mandar tu
+  JWT) y recibe JSON, no multipart.
+
+> ⚠️ **Pendiente de producción:** `/webhooks/sendgrid` no verifica que la
+> petición venga realmente de SendGrid (sin firma ni allowlist de IP) — en
+> teoría cualquiera que sepa el email de un usuario podría asociarle una
+> factura falsa. Antes de exponerlo públicamente, agregar verificación de
+> IP de SendGrid o un secreto compartido en la URL del webhook.
+>
+> ⚠️ **SendGrid Inbound Parse real envía `multipart/form-data`**, no JSON.
+> Este endpoint asume un adaptador/relay que normaliza el correo a la forma
+> JSON documentada arriba antes de reenviarlo aquí — no está cableado
+> directamente al webhook crudo de SendGrid todavía.
+
+## Ingesta por WhatsApp (Fase 3b)
+
+Flujo: usuario reenvía su factura al número de WhatsApp Business → Meta
+webhook → `POST /webhooks/whatsapp` → se descarga el adjunto de la Graph API
+→ mismo parser/validator/classifier de Fase 1 → se guarda en `invoices` →
+se responde por WhatsApp con el resultado.
+
+- **Verificación del webhook** (dos secretos distintos, no confundir):
+  - `WHATSAPP_VERIFY_TOKEN`: string que tú inventas, solo para el handshake
+    inicial `GET /webhooks/whatsapp?hub.mode=subscribe&hub.verify_token=...`.
+  - `WHATSAPP_APP_SECRET`: el App Secret real de tu app en Meta for
+    Developers, usado para firmar cada POST con HMAC-SHA256
+    (`X-Hub-Signature-256: sha256=<hex>`). El endpoint recalcula la firma
+    sobre el body crudo y responde **401** si no coincide.
+- **Descarga de adjuntos** ([whatsapp_service.py](whatsapp_service.py)): Meta
+  **no** manda una URL descargable en el webhook, solo `document.id` (media
+  ID). Se resuelve en dos llamadas a la Graph API: `GET /{media_id}` →
+  URL temporal → `GET` esa URL (mismo Bearer token) → bytes reales.
+- **Resolución de usuario por teléfono**: mismo patrón que el correo — si el
+  número (`whatsapp_phone`) ya está registrado se usa esa cuenta; si no, se
+  crea una cuenta mínima (RFC placeholder, contraseña aleatoria
+  inutilizable, nombre tomado de `contacts[].profile.name` si Meta lo manda).
+- **Respuesta por WhatsApp**: al terminar de procesar, se envía un mensaje de
+  texto de vuelta con el resultado (✅/⚠️/❌/📄 según el estatus). Si el envío
+  falla, se registra en el log pero **no** rompe el webhook — la factura ya
+  quedó guardada.
+- **Resiliencia**: fallos al descargar el adjunto o enviar la respuesta se
+  capturan y registran; el webhook completo sigue devolviendo `200` (evita
+  que Meta reintente el payload entero por un fallo parcial en una sola
+  factura de varias). Solo una **firma inválida** responde `401`.
+
+> ⚠️ **Dependencia:** se usa `httpx` (ya presente en el proyecto) en vez de
+> `aiohttp` para las llamadas a la Graph API — evita sumar una librería
+> nueva que duplica algo que ya teníamos.
+>
+> ⚠️ **Migración de esquema:** se agregó la columna `whatsapp_phone` a
+> `users`. `init_db()`/`create_all` solo crea tablas nuevas — si tu tabla
+> `users` en Supabase ya existe, necesitas un `ALTER TABLE users ADD COLUMN
+> whatsapp_phone VARCHAR(20) UNIQUE` manual antes de desplegar esta fase.
 
 ## Seguridad (Fase 2a + 2b)
 
@@ -170,12 +253,15 @@ facturapp/
 ├── auth.py          # JWT (access + refresh) + bcrypt + get_current_user
 ├── security.py      # Rate limiter (slowapi)
 ├── chat.py          # Chat OpenAI (function calling) + 5 tools + error handling
-├── schemas.py       # Pydantic (register/login/token/chat)
+├── accounts.py      # Aprovisionamiento de cuentas mínimas (compartido email/WhatsApp)
+├── email_service.py # Resolución de usuario + adjuntos (webhook SendGrid)
+├── whatsapp_service.py  # Firma HMAC + descarga media + envío (Meta Cloud API)
+├── schemas.py       # Pydantic (register/login/token/chat/email/whatsapp)
 ├── parser.py · validator.py · classifier.py   # Fase 1, SIN cambios
 ├── export.py        # ZIP/Excel (mock)
 ├── templates/dashboard.html
 ├── seeds/           # 4 CFDI + usuarios-test.sql
-└── tests/           # 62 tests (offline)
+└── tests/           # 91 tests (offline)
 scripts/migrate_to_supabase.py
 requirements.txt
 ```
@@ -188,10 +274,20 @@ requirements.txt
 - **Rotación de refresh tokens**: hoy no se invalida el refresh_token viejo al
   usarlo (no hay revocación/blacklist). Suficiente para Fase 2b; considerar
   para producción con más usuarios.
+- **`/webhooks/sendgrid` sin verificación de origen** (ver advertencia arriba):
+  agregar allowlist de IPs de SendGrid o un secreto en la URL antes de
+  exponer el endpoint públicamente.
+- **Adaptador multipart→JSON real** (SendGrid): falta el relay que convierta
+  el POST crudo de SendGrid Inbound Parse (`multipart/form-data`) al JSON
+  que ese endpoint espera.
+- **Migración de esquema** (WhatsApp): la columna `whatsapp_phone` es nueva;
+  si la tabla `users` de Supabase ya existe, requiere un `ALTER TABLE`
+  manual (`create_all` no altera tablas existentes).
 
 ## Qué viene
 
-- Conectar a Supabase real con las credenciales de producción.
-- **Fase 2c:** ingesta real de correo (SendGrid inbound).
-- **Fase 3:** WhatsApp + Paquete Abril (monetización).
+- Conectar a Supabase real con las credenciales de producción (incluye el
+  `ALTER TABLE` de `whatsapp_phone` si la tabla ya existía).
+- Configurar los adaptadores reales de SendGrid y Meta (ver advertencias).
+- **Fase 3c:** Paquete Abril (monetización).
 - **Fase 4:** export Excel/ZIP funcional.

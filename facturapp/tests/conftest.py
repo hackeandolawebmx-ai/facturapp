@@ -11,6 +11,10 @@ import os
 os.environ.setdefault("DATABASE_URL", "sqlite://")  # SQLite en-memory (StaticPool)
 os.environ.setdefault("OPENAI_API_KEY", "sk-test-dummy")
 os.environ.setdefault("SECRET_KEY", "test-secret-key-suficientemente-larga-1234567890")
+os.environ.setdefault("WHATSAPP_TOKEN", "test-whatsapp-token-dummy")
+os.environ.setdefault("WHATSAPP_VERIFY_TOKEN", "test-verify-token-dummy")
+os.environ.setdefault("WHATSAPP_APP_SECRET", "test-app-secret-dummy")
+os.environ.setdefault("WHATSAPP_PHONE_NUMBER_ID", "1234567890")
 
 from pathlib import Path  # noqa: E402
 

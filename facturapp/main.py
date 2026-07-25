@@ -6,12 +6,13 @@ aquí se agregan las capas de auth, chat y aislamiento por usuario.
 from __future__ import annotations
 
 import datetime as dt
+import json
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile, status
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from slowapi.errors import RateLimitExceeded
 from sqlalchemy.orm import Session
 
@@ -24,13 +25,21 @@ from .auth import (
 from .classifier import Classifier
 from .config import setup_logging, settings
 from .database import get_db, init_db
+from .email_service import (
+    extract_attachments, extract_sender_email, get_or_create_user_by_email,
+)
 from .models import ChatMessage, Invoice, User
 from .parser import CFDIParseError, parse_cfdi
 from .schemas import (
-    ChatRequest, ChatResponse, TokenResponse, UserLogin, UserProfile, UserRegister,
+    ChatRequest, ChatResponse, EmailWebhook, TokenResponse, UserLogin,
+    UserProfile, UserRegister,
 )
 from .security import limiter
 from .validator import SEV_POR_REVISAR, SEV_RECHAZADA, ValidationEngine
+from .whatsapp_service import (
+    download_media_from_meta, extract_whatsapp_messages,
+    get_or_create_user_by_phone, send_whatsapp_message, verify_whatsapp_signature,
+)
 
 TEMPLATE = Path(__file__).parent / "templates" / "dashboard.html"
 classifier = Classifier()
@@ -148,62 +157,62 @@ async def profile(current_user: User = Depends(get_current_user)) -> UserProfile
 
 
 # ==========================================================================
-# INGESTA (por usuario)
+# INGESTA (compartida: subida manual autenticada + webhook SendGrid)
 # ==========================================================================
 
-@app.post("/webhooks/email")
-async def ingest_email(
-    file: UploadFile = File(...),
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-) -> JSONResponse:
-    contenido = await file.read()
-    nombre = (file.filename or "").lower()
+def _ingest_invoice(db: Session, user: User, contenido: bytes, filename: str) -> tuple[int, dict]:
+    """Parsea, valida, clasifica y guarda un CFDI para `user`.
+
+    Devuelve (status_code, body) — usado tanto por el endpoint autenticado
+    de subida manual como por el webhook público de SendGrid, para que la
+    lógica de negocio no viva duplicada en dos lugares.
+    """
+    nombre = (filename or "").lower()
 
     if nombre.endswith(".pdf") or contenido[:5] == b"%PDF-":
-        return JSONResponse(status_code=202, content={
+        return 202, {
             "uuid": None, "estatus": SEV_POR_REVISAR,
             "hallazgos": [{
                 "codigo": "PDF_SIN_XML", "severidad": SEV_POR_REVISAR,
                 "mensaje": ("Solo recibimos el PDF. Necesitas el XML para deducir; "
                             "pídelo al emisor"),
             }],
-        })
+        }
 
     try:
         invoice = parse_cfdi(contenido)
     except CFDIParseError as exc:
-        return JSONResponse(status_code=422, content={
+        return 422, {
             "uuid": None, "estatus": SEV_RECHAZADA,
             "hallazgos": [{
                 "codigo": "XML_MAL_FORMADO", "severidad": SEV_RECHAZADA,
                 "mensaje": "XML inválido o no es CFDI 4.0. Pídelo de nuevo al emisor",
                 "detalle": str(exc),
             }],
-        })
+        }
 
     # UUIDs existentes SOLO de este usuario (aislamiento).
     existing = {
         row[0] for row in db.query(Invoice.uuid_fiscal)
-        .filter(Invoice.user_id == current_user.id).all()
+        .filter(Invoice.user_id == user.id).all()
     }
     previa = (
         db.query(Invoice)
-        .filter(Invoice.user_id == current_user.id, Invoice.uuid_fiscal == invoice["uuid"])
+        .filter(Invoice.user_id == user.id, Invoice.uuid_fiscal == invoice["uuid"])
         .first()
     )
     fecha_previa = previa.fecha_emision if previa else None
 
-    engine = ValidationEngine(current_user.rfc, existing_uuids=list(existing), classifier=classifier)
+    engine = ValidationEngine(user.rfc, existing_uuids=list(existing), classifier=classifier)
     resultado = engine.validate(invoice, fecha_previa=fecha_previa)
     categoria = resultado["categoria"]
     _, _, confianza = classifier.classify(invoice)
 
     if resultado["status"] != SEV_RECHAZADA:
         row = Invoice(
-            user_id=current_user.id,
+            user_id=user.id,
             uuid_fiscal=invoice["uuid"],
-            usuario_rfc=current_user.rfc,
+            usuario_rfc=user.rfc,
             emisor_rfc=invoice["emisor_rfc"],
             emisor_nombre=invoice["emisor_nombre"],
             receptor_rfc=invoice["receptor_rfc"],
@@ -221,10 +230,141 @@ async def ingest_email(
         db.add(row)
         db.commit()
 
-    return JSONResponse(content={
+    return 200, {
         "uuid": invoice["uuid"], "estatus": resultado["status"],
         "categoria": categoria, "hallazgos": resultado["hallazgos"],
-    })
+    }
+
+
+@app.post("/webhooks/email")
+async def ingest_email(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> JSONResponse:
+    """Subida manual autenticada (usuario ya registrado, con Bearer token)."""
+    contenido = await file.read()
+    status_code, body = _ingest_invoice(db, current_user, contenido, file.filename or "")
+    return JSONResponse(status_code=status_code, content=body)
+
+
+@app.post("/webhooks/sendgrid")
+async def ingest_email_sendgrid(payload: EmailWebhook, db: Session = Depends(get_db)) -> JSONResponse:
+    """Webhook público de SendGrid Inbound Parse — sin JWT (SendGrid no puede
+    mandar un Bearer token). El usuario se identifica por el remitente del
+    correo; si no existe, se crea una cuenta mínima (ver email_service.py).
+
+    ⚠️ Sin verificación de firma/origen: cualquiera que sepa el email de un
+    usuario podría, en teoría, enviar un POST directo simulando ser SendGrid
+    y asociar facturas a esa cuenta. Para producción, agregar verificación
+    de IP de SendGrid o un secreto compartido en la URL del webhook.
+    """
+    sender_email = extract_sender_email(payload.from_)
+    user = get_or_create_user_by_email(db, sender_email)
+    attachments = extract_attachments(payload)
+
+    if not attachments:
+        return JSONResponse(status_code=202, content={
+            "user_id": user.id,
+            "estatus": "sin_adjuntos",
+            "mensaje": "No encontramos ningún adjunto XML o PDF en el correo.",
+        })
+
+    resultados = []
+    for kind, contenido in attachments.items():
+        status_code, body = _ingest_invoice(db, user, contenido, f"attachment.{kind}")
+        resultados.append({"filename": f"attachment.{kind}", "status_code": status_code, **body})
+
+    return JSONResponse(status_code=200, content={"user_id": user.id, "resultados": resultados})
+
+
+def _whatsapp_reply_text(body: dict) -> str:
+    """Traduce el resultado de _ingest_invoice a un mensaje de WhatsApp."""
+    estatus = body.get("estatus")
+    hallazgos = body.get("hallazgos") or []
+    primer_mensaje = hallazgos[0]["mensaje"] if hallazgos else ""
+
+    if estatus == "valida":
+        return f"✅ Factura recibida y clasificada como {body.get('categoria')}. ¡Gracias!"
+    if estatus == "advertencia":
+        return f"⚠️ Factura recibida, pero: {primer_mensaje}"
+    if estatus == "rechazada":
+        return f"❌ No pudimos procesar tu factura: {primer_mensaje}"
+    if estatus == "por_revisar":
+        return "📄 Recibimos tu PDF, pero necesitamos el XML para poder deducir esta factura."
+    return "Recibimos tu mensaje, pero no encontramos ninguna factura válida."
+
+
+@app.get("/webhooks/whatsapp")
+async def whatsapp_webhook_verify(request: Request) -> PlainTextResponse:
+    """Handshake de verificación de Meta (GET con hub.challenge)."""
+    mode = request.query_params.get("hub.mode")
+    token = request.query_params.get("hub.verify_token")
+    challenge = request.query_params.get("hub.challenge", "")
+
+    if mode == "subscribe" and token == settings.whatsapp_verify_token:
+        return PlainTextResponse(challenge, status_code=200)
+    raise HTTPException(status_code=403, detail="Verificación de webhook fallida")
+
+
+@app.post("/webhooks/whatsapp")
+async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)) -> JSONResponse:
+    """Webhook público de Meta Cloud API — sin JWT (Meta no puede mandar un
+    Bearer token). La autenticidad de la petición se verifica con la firma
+    HMAC (X-Hub-Signature-256), no con un token de acceso.
+
+    Siempre responde 200 a Meta salvo firma inválida (401) — errores al
+    descargar/enviar mensajes se registran en el log y no rompen el webhook
+    completo (evita que Meta reintente el payload entero por un fallo
+    parcial en una sola de varias facturas).
+    """
+    body = await request.body()
+    signature = request.headers.get("X-Hub-Signature-256")
+
+    if settings.whatsapp_app_secret:
+        if not verify_whatsapp_signature(body, signature, settings.whatsapp_app_secret):
+            logger.warning("Firma de WhatsApp inválida")
+            raise HTTPException(status_code=401, detail="Firma inválida")
+    else:
+        logger.warning("WHATSAPP_APP_SECRET no configurado: se omite verificación de firma")
+
+    try:
+        payload = json.loads(body)
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="JSON inválido")
+
+    mensajes = extract_whatsapp_messages(payload)
+    resultados = []
+
+    for msg in mensajes:
+        user = get_or_create_user_by_phone(db, msg["from"], msg.get("profile_name"))
+
+        try:
+            contenido, _mime = await download_media_from_meta(
+                msg["media_id"], settings.whatsapp_token
+            )
+        except Exception:
+            logger.exception(
+                "Error descargando adjunto de WhatsApp (media_id=%s)", msg["media_id"]
+            )
+            resultados.append({
+                "from": msg["from"],
+                "error": "No se pudo descargar el adjunto de WhatsApp",
+            })
+            continue
+
+        status_code, ingest_body = _ingest_invoice(db, user, contenido, msg["filename"])
+        resultados.append({"from": msg["from"], "status_code": status_code, **ingest_body})
+
+        try:
+            await send_whatsapp_message(
+                msg["from"], _whatsapp_reply_text(ingest_body),
+                settings.whatsapp_token, settings.whatsapp_phone_number_id,
+            )
+        except Exception:
+            logger.exception("No se pudo enviar la respuesta de WhatsApp a %s", msg["from"])
+
+    return JSONResponse(status_code=200, content={"resultados": resultados})
 
 
 # ==========================================================================

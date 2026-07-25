@@ -1,9 +1,9 @@
-"""Esquemas Pydantic para requests/responses (Fase 2a)."""
+"""Esquemas Pydantic para requests/responses (Fase 2a/3a)."""
 from __future__ import annotations
 
 import re
 
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 # RFC persona física: exactamente 13 caracteres alfanuméricos
 # (4 letras + 6 dígitos de fecha + 3 alfanuméricos de homoclave).
@@ -47,6 +47,7 @@ class UserProfile(BaseModel):
     rfc: str
     plan: str
     web_token: str | None = None
+    whatsapp_phone: str | None = None
 
 
 class ChatRequest(BaseModel):
@@ -56,3 +57,40 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     response: str
     tools_used: list[str] = []
+
+
+# ---- Email inbound (Fase 3a, webhook SendGrid) ---------------------------
+
+class EmailAttachment(BaseModel):
+    filename: str
+    content: str  # base64
+
+
+class EmailWebhook(BaseModel):
+    """Payload del webhook de SendGrid.
+
+    NOTA: SendGrid Inbound Parse en producción envía multipart/form-data
+    (no JSON) — este esquema asume un adaptador/relay que normaliza el
+    correo a JSON con adjuntos en base64 antes de llegar aquí. Ver
+    email_service.py y el README para el detalle.
+    """
+    model_config = ConfigDict(populate_by_name=True)
+
+    from_: str = Field(alias="from")
+    to: str
+    subject: str | None = None
+    attachments: list[EmailAttachment] = Field(default_factory=list)
+
+
+# ---- WhatsApp inbound (Fase 3b, webhook Meta Cloud API) -------------------
+
+class WhatsAppWebhookPayload(BaseModel):
+    """Payload crudo del webhook de Meta.
+
+    Deliberadamente laxo (`entry: list[dict]`): la forma exacta de `changes`
+    varía mucho según el tipo de evento (mensaje, status, etc.), así que la
+    validación fina de mensajes vive en whatsapp_service.extract_whatsapp_messages,
+    no aquí.
+    """
+    object: str | None = None
+    entry: list[dict] = Field(default_factory=list)
