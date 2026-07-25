@@ -309,64 +309,34 @@ async def whatsapp_webhook_verify(request: Request) -> PlainTextResponse:
 
 @app.post("/webhooks/whatsapp")
 async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)) -> JSONResponse:
-    """Webhook público de Meta Cloud API — sin JWT (Meta no puede mandar un
-    Bearer token). La autenticidad de la petición se verifica con la firma
-    HMAC (X-Hub-Signature-256), no con un token de acceso.
-
-    Siempre responde 200 a Meta salvo firma inválida (401) — errores al
-    descargar/enviar mensajes se registran en el log y no rompen el webhook
-    completo (evita que Meta reintente el payload entero por un fallo
-    parcial en una sola de varias facturas).
-    """
+    """Webhook público de Meta Cloud API..."""
+    logger.info(">>> WEBHOOK WHATSAPP RECIBIDO <<<")  # ← AGREGA ESTO
+    
     body = await request.body()
+    logger.info(f">>> BODY RECIBIDO: {len(body)} bytes")  # ← AGREGA ESTO
+    
     signature = request.headers.get("X-Hub-Signature-256")
+    logger.info(f">>> SIGNATURE: {signature[:30] if signature else 'None'}...")  # ← AGREGA ESTO
 
     if settings.whatsapp_app_secret:
         if not verify_whatsapp_signature(body, signature, settings.whatsapp_app_secret):
-            logger.warning("Firma de WhatsApp inválida")
+            logger.warning(">>> FIRMA INVÁLIDA - retornando 401")  # ← AGREGA ESTO
             raise HTTPException(status_code=401, detail="Firma inválida")
+        logger.info(">>> FIRMA VÁLIDA")  # ← AGREGA ESTO
     else:
-        logger.warning("WHATSAPP_APP_SECRET no configurado: se omite verificación de firma")
+        logger.warning(">>> WHATSAPP_APP_SECRET no configurado")
 
     try:
         payload = json.loads(body)
+        logger.info(">>> JSON PARSEADO OK")  # ← AGREGA ESTO
     except json.JSONDecodeError:
+        logger.error(">>> JSON PARSE ERROR")  # ← AGREGA ESTO
         raise HTTPException(status_code=400, detail="JSON inválido")
 
     mensajes = extract_whatsapp_messages(payload)
-    resultados = []
-
-    for msg in mensajes:
-        user = get_or_create_user_by_phone(db, msg["from"], msg.get("profile_name"))
-
-        try:
-            contenido, _mime = await download_media_from_meta(
-                msg["media_id"], settings.whatsapp_token
-            )
-        except Exception:
-            logger.exception(
-                "Error descargando adjunto de WhatsApp (media_id=%s)", msg["media_id"]
-            )
-            resultados.append({
-                "from": msg["from"],
-                "error": "No se pudo descargar el adjunto de WhatsApp",
-            })
-            continue
-
-        status_code, ingest_body = _ingest_invoice(db, user, contenido, msg["filename"])
-        resultados.append({"from": msg["from"], "status_code": status_code, **ingest_body})
-
-        try:
-            await send_whatsapp_message(
-                msg["from"], _whatsapp_reply_text(ingest_body),
-                settings.whatsapp_token, settings.whatsapp_phone_number_id,
-            )
-        except Exception:
-            logger.exception("No se pudo enviar la respuesta de WhatsApp a %s", msg["from"])
-
-    return JSONResponse(status_code=200, content={"resultados": resultados})
-
-
+    logger.info(f">>> MENSAJES EXTRAÍDOS: {len(mensajes)}")  # ← AGREGA ESTO
+    
+    # ... resto igual
 # ==========================================================================
 # API (por usuario, requiere auth)
 # ==========================================================================
