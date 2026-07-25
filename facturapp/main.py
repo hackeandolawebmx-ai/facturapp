@@ -306,38 +306,36 @@ async def whatsapp_webhook_verify(request: Request) -> PlainTextResponse:
         return PlainTextResponse(challenge, status_code=200)
     raise HTTPException(status_code=403, detail="Verificación de webhook fallida")
 
-
 @app.post("/webhooks/whatsapp")
 async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)) -> JSONResponse:
     """Webhook público de Meta Cloud API..."""
-    logger.info(">>> WEBHOOK WHATSAPP RECIBIDO <<<")  # ← AGREGA ESTO
+    print(">>> WEBHOOK WHATSAPP RECIBIDO <<<", flush=True)  # ← CAMBIA A PRINT
     
     body = await request.body()
-    logger.info(f">>> BODY RECIBIDO: {len(body)} bytes")  # ← AGREGA ESTO
+    print(f">>> BODY RECIBIDO: {len(body)} bytes", flush=True)
     
     signature = request.headers.get("X-Hub-Signature-256")
-    logger.info(f">>> SIGNATURE: {signature[:30] if signature else 'None'}...")  # ← AGREGA ESTO
+    print(f">>> SIGNATURE: {signature[:30] if signature else 'None'}...", flush=True)
 
     if settings.whatsapp_app_secret:
         if not verify_whatsapp_signature(body, signature, settings.whatsapp_app_secret):
-            logger.warning(">>> FIRMA INVÁLIDA - retornando 401")  # ← AGREGA ESTO
+            print(">>> FIRMA INVÁLIDA - retornando 401", flush=True)
             raise HTTPException(status_code=401, detail="Firma inválida")
-        logger.info(">>> FIRMA VÁLIDA")  # ← AGREGA ESTO
+        print(">>> FIRMA VÁLIDA", flush=True)
     else:
-        logger.warning(">>> WHATSAPP_APP_SECRET no configurado")
+        print(">>> WHATSAPP_APP_SECRET no configurado", flush=True)
 
     try:
         payload = json.loads(body)
-        logger.info(">>> JSON PARSEADO OK")  # ← AGREGA ESTO
+        print(">>> JSON PARSEADO OK", flush=True)
     except json.JSONDecodeError:
-        logger.error(">>> JSON PARSE ERROR")  # ← AGREGA ESTO
+        print(">>> JSON PARSE ERROR", flush=True)
         raise HTTPException(status_code=400, detail="JSON inválido")
 
     mensajes = extract_whatsapp_messages(payload)
-    logger.info(f">>> MENSAJES EXTRAÍDOS: {len(mensajes)}")  # ← AGREGA ESTO
+    print(f">>> MENSAJES EXTRAÍDOS: {len(mensajes)}", flush=True)
     
-    # ... resto igual
-# ==========================================================================
+    # ... resto igual# ==========================================================================
 # API (por usuario, requiere auth)
 # ==========================================================================
 
