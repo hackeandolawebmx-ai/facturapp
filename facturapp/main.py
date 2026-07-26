@@ -341,6 +341,8 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)) -> J
     signature = request.headers.get("X-Hub-Signature-256")
     print("C", flush=True)  # ← Print 3
     # ... resto
+      
+    print(f">>> PAYLOAD COMPLETO:\n{body.decode('utf-8')}", flush=True)  # ← AGREGA ESTO
     
     """Webhook público de Meta Cloud API..."""
     print(">>> WEBHOOK WHATSAPP RECIBIDO <<<", flush=True)  # ← CAMBIA A PRINT
