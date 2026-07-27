@@ -18,3 +18,8 @@ __pycache__/
 
 # Logs (Fase 2b)
 logs/
+
+# Supabase CLI (Fase M1) — artefactos locales, nunca el project_id real de otros
+.supabase/
+supabase/.temp/
+node_modules/

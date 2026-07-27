@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4"
+                  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                  xsi:schemaLocation="http://www.sat.gob.mx/cfd/4 http://www.sat.gob.mx/sitio_internet/cfd/4/cfdv40.xsd"
+                  Version="4.0"
+                  Serie="A" Folio="1024"
+                  Fecha="2026-07-12T10:30:00"
+                  SubTotal="1000.00" Total="1160.00" Moneda="MXN"
+                  TipoDeComprobante="I"
+                  FormaPago="03" MetodoPago="PUE"
+                  LugarExpedicion="64000"
+                  Exportacion="01">
+  <cfdi:Emisor Rfc="RUAA791102H1A" Nombre="Consultorio Medico Dr. Alejandro Ruiz" RegimenFiscal="612"/>
+  <cfdi:Receptor Rfc="DAXX860715XX0" Nombre="Paciente Demo" DomicilioFiscalReceptor="64000"
+                 RegimenFiscalReceptor="605" UsoCFDI="D02"/>
+  <cfdi:Conceptos>
+    <cfdi:Concepto ClaveProdServ="629298" Cantidad="1" ClaveUnidad="E48"
+                   Descripcion="Consulta medica general" ValorUnitario="1000.00" Importe="1000.00"
+                   ObjetoImp="02">
+      <cfdi:Impuestos>
+        <cfdi:Traslados>
+          <cfdi:Traslado Base="1000.00" Impuesto="002" TipoFactor="Tasa" TasaOCuota="0.160000" Importe="160.00"/>
+        </cfdi:Traslados>
+      </cfdi:Impuestos>
+    </cfdi:Concepto>
+  </cfdi:Conceptos>
+  <cfdi:Impuestos TotalImpuestosTrasladados="160.00">
+    <cfdi:Traslados>
+      <cfdi:Traslado Base="1000.00" Impuesto="002" TipoFactor="Tasa" TasaOCuota="0.160000" Importe="160.00"/>
+    </cfdi:Traslados>
+  </cfdi:Impuestos>
+  <cfdi:Complemento>
+    <tfd:TimbreFiscalDigital xmlns:tfd="http://www.sat.gob.mx/TimbreFiscalDigital"
+                             Version="1.1"
+                             UUID="A4F29C1D-1234-4ABC-9C1D-1234567890AB"
+                             FechaTimbrado="2026-07-12T10:30:05"
+                             RfcProvCertif="SAT970701NN3"
+                             SelloCFD="AAAA" NoCertificadoSAT="00001000000504465028" SelloSAT="BBBB"/>
+  </cfdi:Complemento>
+</cfdi:Comprobante>

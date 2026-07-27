@@ -1,0 +1,44 @@
+# Fase M1 — Config de Supabase CLI.
+#
+# project_id: reemplaza con el project-ref real antes de `supabase link`.
+# (Si ya usas este proyecto para RanchoApp2-DB, es el mismo project-ref —
+# el esquema `facturapp` convive en el mismo proyecto, separado por schema.)
+project_id = "REEMPLAZA_CON_TU_PROJECT_REF"
+
+[api]
+enabled = true
+port = 54321
+# `facturapp` debe listarse aquí para que PostgREST/supabase-js puedan
+# consultarlo con `.schema("facturapp")` — por defecto solo expone `public`.
+schemas = ["public", "facturapp", "graphql_public"]
+extra_search_path = ["public", "facturapp"]
+max_rows = 1000
+
+[db]
+port = 54322
+major_version = 15
+
+[studio]
+enabled = true
+port = 54323
+
+# verify_jwt = false es OBLIGATORIO en estas dos funciones: SendGrid y Meta
+# llaman al webhook sin un JWT de Supabase (no pueden generarlo). Sin esto,
+# el gateway de Supabase rechazaría toda petición externa con 401 antes de
+# que el código de la función siquiera se ejecute.
+[functions.whatsapp-webhook]
+verify_jwt = false
+
+[functions.sendgrid-webhook]
+verify_jwt = false
+
+# api-chat SÍ requiere autenticación real — pero verify_jwt = false también
+# es obligatorio aquí, por una razón distinta: nuestros usuarios tienen un
+# JWT propio emitido por el backend Python (HS256, SECRET_KEY compartido),
+# NO un JWT de Supabase Auth (nuestros usuarios no pasan por Supabase Auth
+# en absoluto). Si se dejara verify_jwt = true, el gateway de Supabase
+# rechazaría con 401 CUALQUIER request — incluso con un access token válido
+# — porque no es un JWT que Supabase Auth reconozca. La verificación real
+# ocurre dentro de la función (_shared/auth.ts, mismo SECRET_KEY que Python).
+[functions.api-chat]
+verify_jwt = false

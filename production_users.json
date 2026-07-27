@@ -1,0 +1,22 @@
+[
+  {
+    "id": 1,
+    "email": "daniela@example.com",
+    "nombre": "Daniela \u00c1vila",
+    "rfc": "DAXX860715XX0",
+    "hashed_password": "$2b$12$.8h2SJBtKgM7RSATw9QSkus0k/Ud/oIdXgKYQ66w8eZXru22qmqTy",
+    "web_token": "XBgteXHWaz9E44Dw_-50XXfx5_73b520",
+    "plan": "free",
+    "created_at": "2026-07-24 04:30:05.220279"
+  },
+  {
+    "id": 2,
+    "email": "bruno@example.com",
+    "nombre": "Bruno Reyes",
+    "rfc": "REBB900110AB1",
+    "hashed_password": "$2b$12$s7V9y942rfaPzaoPB7o6Lu/a.DY327/mhTJ96TZdom0sh0GZnRZ6q",
+    "web_token": "JnOl00AHzasEhpXEU6Xyu2q5t8Je3_BP",
+    "plan": "free",
+    "created_at": "2026-07-24 04:30:05.220286"
+  }
+]
