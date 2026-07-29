@@ -65,12 +65,14 @@ async function handlePost(req: Request): Promise<Response> {
     console.log("handlePost: antes de getSupabaseClient");
     const supabase = getSupabaseClient();
     console.log("handlePost: después de getSupabaseClient");
+    console.log("handlePost: antes de primer query (existing user)");
 
     const { data: existing, error: selectError } = await supabase
       .schema("facturapp").from("users")
       .select("id, email, rfc")
       .eq("email", email)
       .maybeSingle();
+    console.log("handlePost: después de primer query, selectError:", selectError);
     if (selectError) return jsonResponse({ detail: "Error consultando usuario" }, 500);
     if (existing) {
       return jsonResponse({ detail: "Ese email ya está registrado" }, 400);
