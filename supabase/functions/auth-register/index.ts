@@ -28,18 +28,23 @@ interface RegisterPayload {
 }
 
 async function handlePost(req: Request): Promise<Response> {
+  console.log("handlePost: inicio");
   try {
+    console.log("handlePost: antes de parsear JSON");
     let payload: RegisterPayload;
     try {
       payload = await req.json();
-    } catch {
+    } catch (e) {
+      console.error("Error parseando JSON:", e);
       return jsonResponse({ detail: "JSON inválido" }, 400);
     }
 
+    console.log("handlePost: JSON parseado, email:", payload.email);
     const email = (payload.email ?? "").trim().toLowerCase();
     const nombre = (payload.nombre ?? "").trim();
     const password = payload.password ?? "";
 
+    console.log("handlePost: antes de validación de email");
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       return jsonResponse({ detail: "Email inválido" }, 422);
     }
@@ -57,7 +62,9 @@ async function handlePost(req: Request): Promise<Response> {
       );
     }
 
+    console.log("handlePost: antes de getSupabaseClient");
     const supabase = getSupabaseClient();
+    console.log("handlePost: después de getSupabaseClient");
 
     const { data: existing, error: selectError } = await supabase
       .schema("facturapp").from("users")
@@ -78,19 +85,27 @@ async function handlePost(req: Request): Promise<Response> {
       return jsonResponse({ detail: "Ese RFC ya está registrado" }, 400);
     }
 
+    console.log("handlePost: antes de hashPassword");
+    const hashedPw = hashPassword(password);
+    console.log("handlePost: después de hashPassword");
+    const webToken = generateWebToken();
+    console.log("handlePost: antes de insert");
+
     const { data: created, error: insertError } = await supabase
       .schema("facturapp").from("users")
       .insert({
         email, nombre, rfc,
-        hashed_password: hashPassword(password),
-        web_token: generateWebToken(),
+        hashed_password: hashedPw,
+        web_token: webToken,
       })
       .select("id")
       .single();
     if (insertError || !created) {
+      console.error("Insert error:", insertError);
       return jsonResponse({ detail: "Error registrando usuario" }, 500);
     }
 
+    console.log("handlePost: éxito");
     return jsonResponse({ user_id: created.id, message: "Registrado exitosamente" }, 201);
   } catch (err) {
     console.error("Error en handlePost:", err);
