@@ -16,7 +16,7 @@
 
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import { corsHeaders } from "../_shared/cors.ts";
+import { corsHeaders, jsonHeaders } from "../_shared/cors.ts";
 import { extractAttachments, extractSenderEmail, type EmailWebhookPayload } from "../_shared/email.ts";
 import { getOrCreateUserByEmail } from "../_shared/users.ts";
 import { ingestInvoice } from "../_shared/invoices.ts";
@@ -35,7 +35,7 @@ async function handlePost(req: Request): Promise<Response> {
   } catch {
     return new Response(JSON.stringify({ detail: "JSON inválido" }), {
       status: 400,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      headers: jsonHeaders,
     });
   }
 
@@ -49,7 +49,7 @@ async function handlePost(req: Request): Promise<Response> {
     console.error(`Error resolviendo usuario para ${senderEmail}:`, exc);
     return new Response(JSON.stringify({ detail: "No se pudo resolver el usuario" }), {
       status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      headers: jsonHeaders,
     });
   }
 
@@ -63,7 +63,7 @@ async function handlePost(req: Request): Promise<Response> {
       mensaje: "No encontramos ningún adjunto XML o PDF en el correo.",
     }), {
       status: 202,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      headers: jsonHeaders,
     });
   }
 
@@ -81,7 +81,7 @@ async function handlePost(req: Request): Promise<Response> {
 
   return new Response(JSON.stringify({ user_id: user.id, resultados }), {
     status: 200,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
+    headers: jsonHeaders,
   });
 }
 

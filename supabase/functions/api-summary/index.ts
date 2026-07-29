@@ -1,7 +1,7 @@
 // Fase M7 — GET /api/summary. Port 1:1 de get_summary()/_summary_for_user() en main.py.
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import { corsHeaders } from "../_shared/cors.ts";
+import { corsHeaders, jsonHeaders } from "../_shared/cors.ts";
 import { getCurrentUser } from "../_shared/auth.ts";
 import { summaryForUser } from "../_shared/invoices_api.ts";
 
@@ -15,7 +15,7 @@ function getSupabaseClient() {
 function jsonResponse(body: unknown, status: number): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
+    headers: jsonHeaders,
   });
 }
 

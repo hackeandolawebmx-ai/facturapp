@@ -10,7 +10,7 @@
 
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import { corsHeaders } from "../_shared/cors.ts";
+import { corsHeaders, jsonHeaders } from "../_shared/cors.ts";
 import { getCurrentUser } from "../_shared/auth.ts";
 import { chat, realChatCompletion } from "../_shared/chat.ts";
 
@@ -29,7 +29,7 @@ async function handlePost(req: Request): Promise<Response> {
   if (!user) {
     return new Response(JSON.stringify({ detail: "No autenticado o token inválido" }), {
       status: 401,
-      headers: { ...corsHeaders, "Content-Type": "application/json", "WWW-Authenticate": "Bearer" },
+      headers: { ...jsonHeaders, "WWW-Authenticate": "Bearer" },
     });
   }
 
@@ -39,7 +39,7 @@ async function handlePost(req: Request): Promise<Response> {
   } catch {
     return new Response(JSON.stringify({ detail: "JSON inválido" }), {
       status: 400,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      headers: jsonHeaders,
     });
   }
 
@@ -47,7 +47,7 @@ async function handlePost(req: Request): Promise<Response> {
   if (!message) {
     return new Response(JSON.stringify({ detail: "El mensaje es obligatorio" }), {
       status: 400,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      headers: jsonHeaders,
     });
   }
 
@@ -67,7 +67,7 @@ async function handlePost(req: Request): Promise<Response> {
     console.error(`Error inesperado en /api/chat para user ${user.id}:`, exc);
     return new Response(JSON.stringify({ detail: "Error procesando tu mensaje." }), {
       status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      headers: jsonHeaders,
     });
   }
 
@@ -76,7 +76,7 @@ async function handlePost(req: Request): Promise<Response> {
 
   return new Response(JSON.stringify(result), {
     status: 200,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
+    headers: jsonHeaders,
   });
 }
 

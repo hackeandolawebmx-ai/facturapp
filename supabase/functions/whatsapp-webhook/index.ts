@@ -23,7 +23,7 @@
 
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import { corsHeaders } from "../_shared/cors.ts";
+import { corsHeaders, jsonHeaders } from "../_shared/cors.ts";
 import {
   downloadMediaFromMeta, extractWhatsappMessages, extractWhatsappTextMessages,
   sendWhatsappMessage, verifyWhatsappSignature, whatsappReplyText,
@@ -105,7 +105,7 @@ async function handleIncoming(req: Request): Promise<Response> {
       await logDebug(supabase, "whatsapp: firma inválida", { signature });
       return new Response(JSON.stringify({ detail: "Firma inválida" }), {
         status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        headers: jsonHeaders,
       });
     }
   } else {
@@ -118,7 +118,7 @@ async function handleIncoming(req: Request): Promise<Response> {
   } catch {
     return new Response(JSON.stringify({ detail: "JSON inválido" }), {
       status: 400,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      headers: jsonHeaders,
     });
   }
 
@@ -183,7 +183,7 @@ async function handleIncoming(req: Request): Promise<Response> {
 
   return new Response(JSON.stringify({ resultados }), {
     status: 200,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
+    headers: jsonHeaders,
   });
 }
 
