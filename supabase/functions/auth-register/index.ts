@@ -28,23 +28,22 @@ interface RegisterPayload {
 }
 
 async function handlePost(req: Request): Promise<Response> {
-  console.log("handlePost: inicio");
   try {
-    console.log("handlePost: antes de parsear JSON");
     let payload: RegisterPayload;
     try {
       payload = await req.json();
-    } catch (e) {
-      console.error("Error parseando JSON:", e);
+    } catch {
       return jsonResponse({ detail: "JSON inválido" }, 400);
     }
 
-    console.log("handlePost: JSON parseado, email:", payload.email);
     const email = (payload.email ?? "").trim().toLowerCase();
     const nombre = (payload.nombre ?? "").trim();
     const password = payload.password ?? "";
 
-    console.log("handlePost: antes de validación de email");
+    // Validación equivalente a los Field(...)/EmailStr de UserRegister
+    // (schemas.py) -- laxa a propósito para el formato de email (no hay
+    // validador de RFC 5322 completo en el runtime de Deno sin una librería
+    // extra; un regex simple es suficiente para el caso real de uso).
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       return jsonResponse({ detail: "Email inválido" }, 422);
     }
@@ -62,18 +61,17 @@ async function handlePost(req: Request): Promise<Response> {
       );
     }
 
-    console.log("handlePost: antes de getSupabaseClient");
     const supabase = getSupabaseClient();
-    console.log("handlePost: después de getSupabaseClient");
-    console.log("handlePost: antes de primer query (existing user)");
 
     const { data: existing, error: selectError } = await supabase
       .schema("facturapp").from("users")
       .select("id, email, rfc")
       .eq("email", email)
       .maybeSingle();
-    console.log("handlePost: después de primer query, selectError:", selectError);
-    if (selectError) return jsonResponse({ detail: "Error consultando usuario" }, 500);
+    if (selectError) {
+      console.error("Error consultando usuario por email:", selectError);
+      return jsonResponse({ detail: "Error consultando usuario" }, 500);
+    }
     if (existing) {
       return jsonResponse({ detail: "Ese email ya está registrado" }, 400);
     }
@@ -82,47 +80,40 @@ async function handlePost(req: Request): Promise<Response> {
       .select("id")
       .eq("rfc", rfc)
       .maybeSingle();
-    if (selectRfcError) return jsonResponse({ detail: "Error consultando usuario" }, 500);
+    if (selectRfcError) {
+      console.error("Error consultando usuario por RFC:", selectRfcError);
+      return jsonResponse({ detail: "Error consultando usuario" }, 500);
+    }
     if (existingRfc) {
       return jsonResponse({ detail: "Ese RFC ya está registrado" }, 400);
     }
-
-    console.log("handlePost: antes de hashPassword");
-    const hashedPw = hashPassword(password);
-    console.log("handlePost: después de hashPassword");
-    const webToken = generateWebToken();
-    console.log("handlePost: antes de insert");
 
     const { data: created, error: insertError } = await supabase
       .schema("facturapp").from("users")
       .insert({
         email, nombre, rfc,
-        hashed_password: hashedPw,
-        web_token: webToken,
+        hashed_password: hashPassword(password),
+        web_token: generateWebToken(),
       })
       .select("id")
       .single();
     if (insertError || !created) {
-      console.error("Insert error:", insertError);
+      console.error("Error insertando usuario:", insertError);
       return jsonResponse({ detail: "Error registrando usuario" }, 500);
     }
 
-    console.log("handlePost: éxito");
     return jsonResponse({ user_id: created.id, message: "Registrado exitosamente" }, 201);
   } catch (err) {
-    console.error("Error en handlePost:", err);
-    return jsonResponse({ detail: `Error interno: ${err instanceof Error ? err.message : String(err)}` }, 500);
+    // El detalle va al log del servidor, NO al cliente: este endpoint es
+    // público y sin autenticar, así que el mensaje de una excepción interna
+    // (nombres de tabla, errores del driver) no debe salir en la respuesta.
+    console.error("Error inesperado en auth-register:", err);
+    return jsonResponse({ detail: "Error interno del servidor" }, 500);
   }
 }
 
 serve(async (req: Request) => {
-  console.log("serve: request recibida, method:", req.method);
-  try {
-    if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
-    if (req.method === "POST") return await handlePost(req);
-    return new Response("Método no soportado", { status: 405, headers: corsHeaders });
-  } catch (err) {
-    console.error("Error en serve:", err);
-    return jsonResponse({ detail: `Error: ${String(err)}` }, 500);
-  }
+  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+  if (req.method === "POST") return await handlePost(req);
+  return new Response("Método no soportado", { status: 405, headers: corsHeaders });
 });
