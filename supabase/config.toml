@@ -3,7 +3,7 @@
 # project_id: reemplaza con el project-ref real antes de `supabase link`.
 # (Si ya usas este proyecto para RanchoApp2-DB, es el mismo project-ref —
 # el esquema `facturapp` convive en el mismo proyecto, separado por schema.)
-project_id = "REEMPLAZA_CON_TU_PROJECT_REF"
+project_id = "smocemszqzsypuachevr"
 
 [api]
 enabled = true
