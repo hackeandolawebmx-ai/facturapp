@@ -15,7 +15,7 @@
 import bcrypt from "npm:bcryptjs@2";
 
 const BCRYPT_MAX_BYTES = 72;
-const BCRYPT_ROUNDS = 12;
+const BCRYPT_ROUNDS = 10;
 
 function truncateToBcryptLimit(password: string): string {
   const bytes = new TextEncoder().encode(password);
