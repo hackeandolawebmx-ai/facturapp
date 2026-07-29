@@ -646,16 +646,27 @@ llamadas fallarían contra el proyecto real aunque compilen bien localmente.
 
 ## Aplicar la migración
 
-**Con Supabase CLI** (recomendado, requiere login interactivo):
+**Con Supabase CLI** (requiere login interactivo). Los pasos van en este
+orden a propósito — ver las notas de más abajo:
 
 ```bash
-npm install -g supabase   # o scoop/homebrew, según tu SO
+npm install -g supabase          # o npx supabase ... en cada comando
 supabase login
 supabase link --project-ref <tu-project-ref>
+
+supabase config push             # ← NO omitir: ver "Trampas del deploy"
 supabase db push
-supabase functions deploy whatsapp-webhook
-supabase functions deploy sendgrid-webhook
+
+for fn in whatsapp-webhook sendgrid-webhook api-chat \
+          auth-register auth-login auth-refresh \
+          api-user-profile api-summary api-invoices \
+          api-public-summary api-public-invoices; do
+  supabase functions deploy $fn
+done
 ```
+
+Los secretos (`OPENAI_API_KEY`, `SECRET_KEY`, `WHATSAPP_*`) se configuran
+aparte — ver la sección "Secrets de Supabase".
 
 **Verificar que las tablas existen** (SQL Editor del dashboard, o `psql`):
 
@@ -671,6 +682,77 @@ SELECT * FROM facturapp.chat_messages;
 curl "https://<tu-project-ref>.supabase.co/functions/v1/whatsapp-webhook?hub.mode=subscribe&hub.verify_token=<WHATSAPP_VERIFY_TOKEN>&hub.challenge=12345"
 # Debe responder: 12345 (con 200)
 ```
+
+### Trampas del deploy (encontradas al desplegar M7 de verdad)
+
+Todas estas costaron tiempo real la primera vez. Están aquí para que la
+segunda vez no.
+
+**1. El schema `facturapp` no basta con marcarlo en el dashboard.**
+
+Síntoma: toda función que toca la BD devuelve `500`, y el log muestra
+`PGRST106 / Invalid schema: facturapp`, con el hint
+`Only the following schemas are exposed: public, graphql_public`.
+
+Lo confuso es que el dashboard (Data API → Settings → Exposed schemas) ya
+mostraba `facturapp` marcado, y el valor **sí** estaba guardado del lado
+del servidor — el diff de `supabase config push` lo confirmó. Aun así
+PostgREST seguía sirviendo la lista vieja. Reiniciar el proyecto
+(Settings → General → Restart project) **no** lo resolvió. Lo que lo
+destrabó fue `supabase config push`, que hace que la plataforma reaplique
+la config de la API completa. Por eso ese comando va en la secuencia de
+arriba, antes de `db push`.
+
+Nota: `pgrst.db_schemas` **no** vive en `pg_roles` en un proyecto hospedado
+(lo inyecta la plataforma como variable de entorno del contenedor), así que
+`select rolconfig from pg_roles where rolname='authenticator'` no sirve
+para diagnosticar esto, y `notify pgrst, 'reload config'` tampoco aplica.
+
+Ojo con el efecto secundario: `config push` empuja **todo** el
+`config.toml`, incluida la sección `[auth]`. Si aceptas ese diff, la
+config de Supabase Auth del proyecto remoto se sobrescribe con los valores
+de desarrollo local (`site_url` a `127.0.0.1`, confirmaciones por email y
+MFA desactivadas). Hoy es inocuo porque FacturasMX no usa Supabase Auth
+—tenemos JWT propio con `SECRET_KEY`— pero hay que revisarlo si algún día
+se activa.
+
+**2. Los grants del schema no son automáticos.**
+
+Supabase aplica los grants de `anon`/`authenticated`/`service_role`
+automáticamente sobre `public`, pero no sobre un schema creado aparte. Sin
+`grant usage on schema facturapp`, aunque el schema esté expuesto, toda
+query falla. Está resuelto en `0005_grant_facturapp_schema_access.sql`,
+que además deja `alter default privileges` puestos para que las tablas de
+fases futuras no requieran repetir los grants.
+
+**3. El import map de `deno.json` no existe en el bundler remoto.**
+
+Síntoma: `supabase functions deploy` falla con
+`Relative import path "openai" not prefixed with / or ./ or ../`.
+
+El `deno.json` con el import map solo aplica localmente (`deno test`,
+`deno check`). El bundler de Supabase no lo lee, así que **todo import
+tiene que ser explícito** en los archivos: `npm:openai@4`,
+`jsr:@std/assert@1`, `jsr:@supabase/supabase-js@2`, `jsr:@panva/jose@6`,
+`npm:bcryptjs@2`, `jsr:@libs/xml@8/parse`. El import map se conserva en
+`deno.json` porque las herramientas locales lo siguen usando, pero no es
+la fuente de verdad para el deploy.
+
+**4. `supabase db reset` y `supabase status` piden Docker.**
+
+Son comandos de desarrollo local. Contra un proyecto hospedado no sirven —
+`db reset` en particular no es lo que quieres. Para inspeccionar el estado
+remoto usa el SQL Editor del dashboard.
+
+**5. Editar archivos con acentos desde PowerShell los corrompe.**
+
+`Get-Content`/`Set-Content` en PowerShell 5.1 leen archivos UTF-8 sin BOM
+usando el codepage ANSI del sistema, y al reescribirlos dejan cada acento
+doble-codificado (`verificación` → `verificaciÃ³n`). Este proyecto está
+escrito íntegramente en español, comentarios incluidos, así que **las
+ediciones masivas van por Python con `encoding='utf-8'` explícito**, nunca
+por cmdlets de PowerShell. (Pasó dos veces en este repo antes de quedar
+anotado aquí.)
 
 ## Qué NO se hizo todavía (por diseño)
 
