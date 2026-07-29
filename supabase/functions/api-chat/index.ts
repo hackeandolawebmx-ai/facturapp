@@ -9,7 +9,7 @@
 // público: requiere `Authorization: Bearer <access_token>` real.
 
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
-import { createClient } from "@supabase/supabase-js";
+import { createClient } from "jsr:@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
 import { getCurrentUser } from "../_shared/auth.ts";
 import { chat, realChatCompletion } from "../_shared/chat.ts";
