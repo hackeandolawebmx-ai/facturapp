@@ -25,7 +25,7 @@
  *    fase, que no correspondía con lo que la versión Python realmente hace.
  */
 
-import { parse as parseXml } from "@libs/xml/parse";
+import { parse as parseXml } from "jsr:@libs/xml@8/parse";
 
 export class CFDIParseError extends Error {
   constructor(message: string, public detalle?: string) {
