@@ -15,8 +15,8 @@
  * `create_access_token()` en Python (mismo SECRET_KEY) se verificó
  * correctamente aquí con la librería `jose` — no es una suposición.
  */
-import { jwtVerify, SignJWT } from "jose";
-import type { SupabaseClient } from "@supabase/supabase-js";
+import { jwtVerify, SignJWT } from "jsr:@panva/jose@6";
+import type { SupabaseClient } from "jsr:@supabase/supabase-js@2";
 
 export interface AuthenticatedUser {
   id: number;

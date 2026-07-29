@@ -4,7 +4,7 @@
  * main.py. Deliberadamente separados de chat.test.ts: son funciones
  * distintas (ver nota de divergencia en invoices_api.ts).
  */
-import { assertEquals } from "@std/assert";
+import { assertEquals } from "jsr:@std/assert@1";
 import { FakeSupabaseClient } from "./fake_supabase_client.ts";
 import { listInvoicesForUser, reclassifyInvoiceById, summaryForUser } from "./invoices_api.ts";
 

@@ -2,7 +2,7 @@
  * Tests del clasificador (Fase M3) — port 1:1 de
  * facturapp/facturapp/tests/test_classifier.py.
  */
-import { assertEquals } from "@std/assert";
+import { assertEquals } from "jsr:@std/assert@1";
 import { classifyInvoice } from "./classifier.ts";
 import { parseCfdi } from "./parser.ts";
 

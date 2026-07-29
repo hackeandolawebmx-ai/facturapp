@@ -1,4 +1,4 @@
-import { assert, assertEquals } from "@std/assert";
+import { assert, assertEquals } from "jsr:@std/assert@1";
 import { interceptQuickCommand } from "./whatsapp_commands.ts";
 
 Deno.test("interceptQuickCommand: saludo simple devuelve respuesta fija", () => {

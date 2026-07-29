@@ -2,7 +2,7 @@
  * Tests del motor de validación (Fase M3) — port 1:1 de
  * facturapp/facturapp/tests/test_validator.py.
  */
-import { assertEquals } from "@std/assert";
+import { assertEquals } from "jsr:@std/assert@1";
 import { parseCfdi } from "./parser.ts";
 import { type Hallazgo, ValidationEngine } from "./validator.ts";
 

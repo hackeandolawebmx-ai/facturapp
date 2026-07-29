@@ -8,8 +8,8 @@
  * con `jose`) se comprobó manualmente antes de escribir este código — ver
  * el README de la migración.
  */
-import { SignJWT } from "jose";
-import { assert, assertEquals, assertNotEquals } from "@std/assert";
+import { SignJWT } from "jsr:@panva/jose@6";
+import { assert, assertEquals, assertNotEquals } from "jsr:@std/assert@1";
 import {
   createAccessToken, createRefreshToken, generateWebToken, getCurrentUser,
   verifyAccessToken, verifyRefreshToken,

@@ -11,7 +11,7 @@
  * interrumpir el flujo del webhook: un fallo al escribir el log se traga y
  * se reporta por console.error, no se relanza.
  */
-import type { SupabaseClient } from "@supabase/supabase-js";
+import type { SupabaseClient } from "jsr:@supabase/supabase-js@2";
 
 export async function logDebug(
   supabase: SupabaseClient,

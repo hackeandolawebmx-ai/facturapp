@@ -12,7 +12,7 @@
  * bcrypt trunca la contraseña a 72 bytes — igual que en Python, se hace
  * explícito aquí para evitar comportamiento sorpresa de la librería.
  */
-import bcrypt from "bcryptjs";
+import bcrypt from "npm:bcryptjs@2";
 
 const BCRYPT_MAX_BYTES = 72;
 const BCRYPT_ROUNDS = 12;

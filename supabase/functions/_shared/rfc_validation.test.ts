@@ -1,4 +1,4 @@
-import { assertEquals } from "@std/assert";
+import { assertEquals } from "jsr:@std/assert@1";
 import { validateRfc } from "./rfc_validation.ts";
 
 Deno.test("validateRfc: RFC válido se normaliza a mayúsculas", () => {

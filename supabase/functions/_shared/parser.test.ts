@@ -2,7 +2,7 @@
  * Tests del parser CFDI 4.0 (Fase M2) — port 1:1 de
  * facturapp/facturapp/tests/test_parser.py (Fase 1, Python).
  */
-import { assert, assertEquals, assertThrows } from "@std/assert";
+import { assert, assertEquals, assertThrows } from "jsr:@std/assert@1";
 import { CFDIParseError, parseCfdi } from "./parser.ts";
 
 const testdata = (name: string) =>

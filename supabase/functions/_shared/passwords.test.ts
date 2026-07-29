@@ -1,4 +1,4 @@
-import { assert, assertEquals } from "@std/assert";
+import { assert, assertEquals } from "jsr:@std/assert@1";
 import { hashPassword, verifyPassword } from "./passwords.ts";
 
 Deno.test("hashPassword + verifyPassword: round-trip correcto", () => {

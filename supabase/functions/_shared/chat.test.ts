@@ -2,8 +2,8 @@
  * Tests del chat conversacional (Fase M5.5) — port 1:1 de
  * facturapp/facturapp/tests/test_chat.py.
  */
-import { assert, assertEquals, assertThrows } from "@std/assert";
-import { APIError, APIConnectionError, OpenAIError, RateLimitError } from "openai";
+import { assert, assertEquals, assertThrows } from "jsr:@std/assert@1";
+import { APIError, APIConnectionError, OpenAIError, RateLimitError } from "npm:openai@4";
 import { FakeSupabaseClient } from "./fake_supabase_client.ts";
 import {
   ChatIntent, ChatServiceError, chat, classifyIntent, getRecentChatHistory, translateOpenAIError,

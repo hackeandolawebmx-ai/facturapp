@@ -2,7 +2,7 @@
  * Tests de la lógica pura del webhook de email (Fase M5) — port de los
  * casos cubiertos por test_email.py en la versión Python (Fase 3a).
  */
-import { assertEquals } from "@std/assert";
+import { assertEquals } from "jsr:@std/assert@1";
 import { extractAttachments, extractSenderEmail } from "./email.ts";
 
 const b64 = (s: string) => Buffer.from(s, "utf-8").toString("base64");

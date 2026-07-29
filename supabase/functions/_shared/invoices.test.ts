@@ -6,7 +6,7 @@
  * El smoke test manual post-deploy (ver README) es lo que valida el INSERT
  * real contra el esquema `facturapp` verdadero.
  */
-import { assertEquals } from "@std/assert";
+import { assertEquals } from "jsr:@std/assert@1";
 import { anioDeFecha, ingestInvoice } from "./invoices.ts";
 import { FakeSupabaseClient } from "./fake_supabase_client.ts";
 

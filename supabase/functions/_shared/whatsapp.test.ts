@@ -7,7 +7,7 @@
  * aquí — ver README para el smoke test manual post-deploy.
  */
 import { createHmac } from "node:crypto";
-import { assertEquals } from "@std/assert";
+import { assertEquals } from "jsr:@std/assert@1";
 import {
   extractWhatsappMessages, extractWhatsappTextMessages, verifyWhatsappSignature, whatsappReplyText,
 } from "./whatsapp.ts";

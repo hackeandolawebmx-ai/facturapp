@@ -4,7 +4,7 @@
  * Usa FakeSupabaseClient (en memoria) — NO es Postgres real. Ver
  * fake_supabase_client.ts para el alcance exacto de la simulación.
  */
-import { assertEquals } from "@std/assert";
+import { assertEquals } from "jsr:@std/assert@1";
 import { FakeSupabaseClient } from "./fake_supabase_client.ts";
 import { getOrCreateUserByEmail, getOrCreateUserByPhone, getUserByWebToken, getUserProfile } from "./users.ts";
 

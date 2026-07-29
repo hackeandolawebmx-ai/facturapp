@@ -14,7 +14,7 @@
  * REST identifica la factura por `id` numérico (PK), no por `uuid_fiscal`
  * como el tool de chat — así es como main.py define esa ruta.
  */
-import type { SupabaseClient } from "@supabase/supabase-js";
+import type { SupabaseClient } from "jsr:@supabase/supabase-js@2";
 
 const YEAR_DEFAULT = 2026;
 

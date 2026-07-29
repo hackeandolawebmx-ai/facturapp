@@ -35,8 +35,8 @@
  * endpoint `/api/chat` (M5.5, port fiel de Python) sigue sin pasar historial
  * — simplemente no usa este parámetro, preservando la paridad 1:1 original.
  */
-import OpenAI, { APIError, OpenAIError, RateLimitError } from "openai";
-import type { SupabaseClient } from "@supabase/supabase-js";
+import OpenAI, { APIError, OpenAIError, RateLimitError } from "npm:openai@4";
+import type { SupabaseClient } from "jsr:@supabase/supabase-js@2";
 import type { AuthenticatedUser } from "./auth.ts";
 
 // --------------------------------------------------------------------------

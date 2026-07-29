@@ -4,7 +4,7 @@
  * Port 1:1 de get_or_create_user_by_phone() y get_or_create_user_by_email()
  * en whatsapp_service.py / email_service.py.
  */
-import type { SupabaseClient } from "@supabase/supabase-js";
+import type { SupabaseClient } from "jsr:@supabase/supabase-js@2";
 import { placeholderRfc } from "./accounts.ts";
 
 export interface AppUser {

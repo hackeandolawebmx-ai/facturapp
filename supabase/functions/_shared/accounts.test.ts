@@ -1,4 +1,4 @@
-import { assertEquals } from "@std/assert";
+import { assertEquals } from "jsr:@std/assert@1";
 import { placeholderRfc } from "./accounts.ts";
 
 Deno.test("placeholderRfc: determinístico y de 13 caracteres, empieza con PEND", () => {

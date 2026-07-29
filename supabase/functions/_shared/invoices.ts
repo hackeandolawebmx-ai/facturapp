@@ -6,7 +6,7 @@
  * por el webhook de WhatsApp (M4) como el de SendGrid (M5) — misma razón
  * que en Python: que la lógica de negocio no viva duplicada en dos sitios.
  */
-import type { SupabaseClient } from "@supabase/supabase-js";
+import type { SupabaseClient } from "jsr:@supabase/supabase-js@2";
 import { classifyInvoice } from "./classifier.ts";
 import { CFDIParseError, parseCfdi } from "./parser.ts";
 import { SEV_POR_REVISAR, SEV_RECHAZADA, ValidationEngine } from "./validator.ts";
