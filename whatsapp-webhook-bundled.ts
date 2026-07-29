@@ -1,4 +1,45 @@
 
+// ===== supabase/functions/_shared/cors.ts =====
+// Fase M1 — Headers CORS compartidos entre Edge Functions.
+//
+// NOTA: los webhooks de SendGrid/Meta son llamadas servidor-a-servidor, no
+// están sujetas a CORS (eso es una restricción de navegador). Este helper
+// existe sobre todo por si en el futuro alguna función se llama desde un
+// navegador (dashboard, herramienta de pruebas) — es el boilerplate estándar
+// que genera `supabase functions new`.
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type, x-hub-signature-256",
+};
+
+// ===== supabase/functions/_shared/accounts.ts =====
+/**
+ * Aprovisionamiento de cuentas mínimas (Fase M4) — port 1:1 de
+ * facturapp/facturapp/accounts.py.
+ *
+ * Lógica compartida entre el webhook de WhatsApp (M4) y el de SendGrid (M5)
+ * para crear cuentas cuando un usuario envía una factura antes de haberse
+ * registrado formalmente.
+ */
+import { createHash } from "node:crypto";
+
+/** RFC sintético, único y determinístico (13 caracteres) para cuentas
+ * auto-creadas. `seed` puede ser el email o el teléfono del usuario.
+ *
+ * No pasa por el validador estricto de registro — el usuario debe completar
+ * su RFC real desde su perfil antes de usar sus deducciones formalmente.
+ *
+ * Síncrono (como en Python) — usamos `node:crypto` en vez de Web Crypto
+ * (`crypto.subtle`) porque este último es async-only; forzar `await` en
+ * cada llamada de esta función determinística no aporta nada.
+ */
+function placeholderRfc(seed: string): string {
+  const hex = createHash("sha256").update(seed, "utf-8").digest("hex").toUpperCase();
+  return `PEND${hex.slice(0, 9)}`;
+}
+
 // ===== supabase/functions/_shared/parser.ts =====
 /**
  * Parser de CFDI 4.0 → objeto plano (Fase M2).
@@ -27,7 +68,7 @@
  *    fase, que no correspondía con lo que la versión Python realmente hace.
  */
 
-import { parse as parseXml } from "@libs/xml/parse";
+import { parse as parseXml } from "jsr:@libs/xml@8/parse";
 
 class CFDIParseError extends Error {
   constructor(message: string, public detalle?: string) {
@@ -184,8 +225,6 @@ function parseCfdi(contenido: Uint8Array | string): ParsedInvoice {
  *    a esto (el webhook handler, en M4) resuelve la consulta a BD antes.
  */
 
-import { classifyInvoice, type ClassificationResult } from "./classifier.ts";
-import type { ParsedInvoice } from "./parser.ts";
 
 const SEV_VALIDA = "valida";
 const SEV_ADVERTENCIA = "advertencia";
@@ -515,6 +554,52 @@ function extractWhatsappMessages(payload: { entry?: unknown[] }): ExtractedMessa
   return results;
 }
 
+interface ExtractedTextMessage {
+  from: string;
+  text: string;
+  profile_name: string | null;
+}
+
+/** Recorre el mismo payload que extractWhatsappMessages(), pero se queda
+ * con los mensajes de tipo "text" (cuerpo no vacío) en vez de "document".
+ *
+ * NO existe en whatsapp_service.py — el sistema Python original solo
+ * procesa documentos adjuntos (facturas), nunca texto conversacional por
+ * WhatsApp. Esto es una extensión nueva (Fase M4b) que habilita chat vía
+ * WhatsApp reusando el mismo `chat()` de `_shared/chat.ts` (Fase M5.5),
+ * adoptando el patrón probado en WHATSAPP_BOT_ARCHITECTURE.md. */
+function extractWhatsappTextMessages(payload: { entry?: unknown[] }): ExtractedTextMessage[] {
+  const entries = (payload.entry ?? []) as Array<Record<string, unknown>>;
+  const results: ExtractedTextMessage[] = [];
+
+  for (const entry of entries) {
+    const changes = (entry.changes ?? []) as Array<Record<string, unknown>>;
+    for (const change of changes) {
+      const value = (change.value ?? {}) as Record<string, unknown>;
+      const contacts = (value.contacts ?? []) as Array<Record<string, unknown>>;
+      const profileNames = new Map<string, string | null>();
+      for (const c of contacts) {
+        const waId = c.wa_id as string | undefined;
+        const profile = (c.profile ?? {}) as Record<string, unknown>;
+        if (waId) profileNames.set(waId, (profile.name as string) ?? null);
+      }
+
+      const messages = (value.messages ?? []) as Array<Record<string, unknown>>;
+      for (const msg of messages) {
+        if (msg.type !== "text") continue;
+
+        const textObj = (msg.text ?? {}) as Record<string, unknown>;
+        const body = ((textObj.body as string) ?? "").trim();
+        if (!body) continue;
+
+        const phone = (msg.from as string) ?? "";
+        results.push({ from: phone, text: body, profile_name: profileNames.get(phone) ?? null });
+      }
+    }
+  }
+  return results;
+}
+
 // ---------------------------------------------------------------------
 // Graph API: descargar media (dos pasos) y enviar mensajes
 // ---------------------------------------------------------------------
@@ -602,6 +687,48 @@ function whatsappReplyText(body: IngestResultLike): string {
   return "Recibimos tu mensaje, pero no encontramos ninguna factura válida.";
 }
 
+// ===== supabase/functions/_shared/whatsapp_commands.ts =====
+/**
+ * Comandos rápidos de WhatsApp, sin IA (Fase M4b).
+ *
+ * Corre ANTES de llamar a OpenAI — ahorra latencia y costo en los mensajes
+ * más comunes (saludo, ayuda). Patrón adoptado de
+ * WHATSAPP_BOT_ARCHITECTURE.md (`interceptQuickCommand` del bot probado en
+ * producción de otro proyecto en el mismo Supabase). No existe en el
+ * sistema Python original — es parte de la extensión de chat vía WhatsApp
+ * (ver whatsapp.ts: extractWhatsappTextMessages).
+ *
+ * Deliberadamente conservador: solo intercepta mensajes cortos que
+ * coinciden EXACTO con un saludo o pedido de ayuda, para no interceptar por
+ * error una pregunta real ("hola, cuánto llevo en médicos" debe llegar a
+ * OpenAI, no cortarse en el saludo).
+ */
+
+const GREETING = /^(hola|buenas|hey|buen[oa]s?\s*d[ií]as?|buenas\s*tardes|buenas\s*noches)[\s!.]*$/i;
+const HELP = /^(ayuda|help|comandos?|qu[eé]\s*puedes\s*hacer)[\s?!.]*$/i;
+
+const GREETING_REPLY =
+  "¡Hola! 🧾 Soy el asistente de FacturasMX. Mándame el XML de una factura " +
+  "para registrarla, o pregúntame cosas como \"¿cuánto llevo en médicos?\" " +
+  "o \"mis facturas de este mes\". Escribe *ayuda* para ver todo lo que puedo hacer.";
+
+const HELP_REPLY =
+  "Puedo ayudarte a:\n" +
+  "• Registrar una factura (envía el XML como documento)\n" +
+  "• Darte tu resumen de deducciones (\"¿cuánto llevo?\")\n" +
+  "• Listar tus facturas (\"mis facturas de julio\")\n" +
+  "• Reclasificar una factura (\"cambia esa factura a médicos\")\n" +
+  "• Explicarte qué es deducible (\"¿qué puedo deducir?\")";
+
+/** Devuelve la respuesta del comando rápido, o `null` si el mensaje debe
+ * pasar a chat() con OpenAI. */
+function interceptQuickCommand(text: string): string | null {
+  const trimmed = text.trim();
+  if (GREETING.test(trimmed)) return GREETING_REPLY;
+  if (HELP.test(trimmed)) return HELP_REPLY;
+  return null;
+}
+
 // ===== supabase/functions/_shared/users.ts =====
 /**
  * Resolución de usuario por canal de ingesta (Fase M4/M5).
@@ -609,8 +736,7 @@ function whatsappReplyText(body: IngestResultLike): string {
  * Port 1:1 de get_or_create_user_by_phone() y get_or_create_user_by_email()
  * en whatsapp_service.py / email_service.py.
  */
-import type { SupabaseClient } from "@supabase/supabase-js";
-import { placeholderRfc } from "./accounts.ts";
+import type { SupabaseClient } from "jsr:@supabase/supabase-js@2";
 
 interface AppUser {
   id: number;
@@ -725,11 +851,6 @@ async function getOrCreateUserByEmail(
  * por el webhook de WhatsApp (M4) como el de SendGrid (M5) — misma razón
  * que en Python: que la lógica de negocio no viva duplicada en dos sitios.
  */
-import type { SupabaseClient } from "@supabase/supabase-js";
-import { classifyInvoice } from "./classifier.ts";
-import { CFDIParseError, parseCfdi } from "./parser.ts";
-import { SEV_POR_REVISAR, SEV_RECHAZADA, ValidationEngine } from "./validator.ts";
-import type { AppUser } from "./users.ts";
 
 /** Port de `_anio_de()` en main.py: primeros 4 dígitos de fecha_emision. */
 function anioDeFecha(fechaEmision: string): number {
@@ -866,25 +987,476 @@ async function ingestInvoice(
   };
 }
 
+// ===== supabase/functions/_shared/debug_log.ts =====
+/**
+ * Logging de diagnóstico a `facturapp.debug_logs` (Fase M4b).
+ *
+ * Adoptado del patrón probado en producción de WHATSAPP_BOT_ARCHITECTURE.md
+ * (bot de otro proyecto en el mismo Supabase) — persiste eventos clave del
+ * webhook (firma inválida, errores de Meta/OpenAI) en una tabla en vez de
+ * depender solo de `supabase functions logs`, que rota rápido.
+ *
+ * No existe equivalente en el sistema Python original — es una mejora de
+ * observabilidad para el canal de WhatsApp, no un port. Nunca debe
+ * interrumpir el flujo del webhook: un fallo al escribir el log se traga y
+ * se reporta por console.error, no se relanza.
+ */
+
+async function logDebug(
+  supabase: SupabaseClient,
+  message: string,
+  payload?: unknown,
+): Promise<void> {
+  try {
+    await supabase
+      .schema("facturapp")
+      .from("debug_logs")
+      .insert({ message, payload: payload ?? null });
+  } catch (exc) {
+    console.error("No se pudo escribir en debug_logs:", exc);
+  }
+}
+
+// ===== supabase/functions/_shared/chat.ts =====
+/**
+ * Chat conversacional con OpenAI (function calling) — Fase M5.5.
+ *
+ * Port 1:1 de facturapp/facturapp/chat.py.
+ *
+ * DIVERGENCIAS DECLARADAS respecto al spec original de esta fase:
+ *
+ * 1. NO se pasa historial de conversación a OpenAI. Se revisó `chat.py`
+ *    línea por línea: cada llamada a `chat()` construye un `messages` nuevo
+ *    con solo `[system, user_message]` — no consulta `chat_messages` para
+ *    dar contexto. El spec asumía que "la versión Python ya hace esto" —
+ *    no es así; se porta la ausencia de historial tal cual, no la versión
+ *    "recomendada" que el spec sugería como alternativa.
+ * 2. NO existe `execute_intent()`. El entry point real es `chat()`, que
+ *    llama a OpenAI directo con function calling — no hay un paso previo
+ *    de clasificar intención que condicione la llamada. `classify_intent`/
+ *    `ChatIntent` SÍ existen en Python, pero son código huérfano: nunca se
+ *    invocan desde `chat()` ni desde el endpoint. Se portan de todos modos
+ *    (Python los testea por separado) pero NO se usan para orquestar nada.
+ * 3. `reclassify_invoice` recibe `uuid` (string, `uuid_fiscal`), no un
+ *    `invoice_id` numérico como proponía el spec — así es como Python
+ *    identifica la factura.
+ * 4. `export_package` es un MOCK real en Python (`export.py` devuelve
+ *    `{formato, archivos, status: "mock_fase4"}`, sin generar ningún ZIP).
+ *    Se porta el mock tal cual — construir un ZIP real ahora sería
+ *    adelantar la Fase 4, no portar el sistema actual.
+ * 5. La forma de la respuesta es `{response: string, tools_used: string[]}`
+ *    — no `{response, metadata: {intent, function_called}}` como sugería
+ *    el spec; ese campo `metadata` no existe en `ChatResponse` de Python.
+ *
+ * EXTENSIÓN (Fase M4b, NO en Python): `chat()` acepta un parámetro `history`
+ * opcional para el canal de WhatsApp (ver whatsapp-webhook/index.ts), que
+ * SÍ inyecta los últimos mensajes de `chat_messages` para dar continuidad a
+ * la conversación — patrón adoptado de WHATSAPP_BOT_ARCHITECTURE.md. El
+ * endpoint `/api/chat` (M5.5, port fiel de Python) sigue sin pasar historial
+ * — simplemente no usa este parámetro, preservando la paridad 1:1 original.
+ */
+import OpenAI, { APIError, OpenAIError, RateLimitError } from "npm:openai@4";
+
+// --------------------------------------------------------------------------
+// Clasificación de intención (huérfana en Python — se porta igual, sin uso)
+// --------------------------------------------------------------------------
+
+const ChatIntent = {
+  RESUMEN: "obtener_resumen",
+  LISTAR: "listar_facturas",
+  RECLASIFICAR: "reclasificar",
+  EXPORTAR: "exportar",
+  AYUDA: "solicitar_ayuda",
+} as const;
+
+const INTENT_KEYWORDS: Array<[string, string[]]> = [
+  [ChatIntent.RECLASIFICAR, ["reclasif", "cambia", "corrige", "es de", "muévela", "muevela"]],
+  [ChatIntent.EXPORTAR, ["exporta", "descarga", "zip", "excel", "paquete"]],
+  [ChatIntent.LISTAR, ["factura", "lista", "muestra", "enséñame", "ensename", "ver mis", "de marzo", "de julio"]],
+  [ChatIntent.RESUMEN, ["cuánto", "cuanto", "resumen", "total", "llevo", "cédula", "cedula", "deducible"]],
+  [ChatIntent.AYUDA, ["qué puedo", "que puedo", "ayuda", "cómo", "como", "deducir", "explica"]],
+];
+
+/** Detecta la intención principal por palabras clave (determinístico).
+ * NO se usa para orquestar chat() — ver nota de divergencia #2 arriba. */
+function classifyIntent(message: string): string {
+  const text = message.toLowerCase();
+  for (const [intent, keywords] of INTENT_KEYWORDS) {
+    if (keywords.some((k) => text.includes(k))) return intent;
+  }
+  return ChatIntent.AYUDA;
+}
+
+// --------------------------------------------------------------------------
+// Herramientas (function calling) — esquema OpenAI, idéntico a Python
+// --------------------------------------------------------------------------
+
+const TOOLS = [
+  {
+    type: "function",
+    function: {
+      name: "get_summary",
+      description: "Obtiene totales de deducciones por categoría del usuario.",
+      parameters: {
+        type: "object",
+        properties: { year: { type: "integer" }, categoria: { type: "string" } },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "list_invoices",
+      description: "Lista facturas del usuario con filtros opcionales.",
+      parameters: {
+        type: "object",
+        properties: {
+          year: { type: "integer" }, month: { type: "integer" }, categoria: { type: "string" },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "reclassify_invoice",
+      description: "Reclasifica una factura del usuario a otra categoría.",
+      parameters: {
+        type: "object",
+        properties: { uuid: { type: "string" }, nueva_categoria: { type: "string" } },
+        required: ["uuid", "nueva_categoria"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "export_package",
+      description: "Genera un paquete ZIP de exportación del año.",
+      parameters: { type: "object", properties: { year: { type: "integer" } } },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "explain_deductions",
+      description: "Explica las categorías de deducción disponibles.",
+      parameters: { type: "object", properties: {} },
+    },
+  },
+];
+
+const CATEGORIAS_INFO: Record<string, string> = {
+  "Médicos": "Gastos médicos, dentales y hospitalarios con pago electrónico y emisor colegiado.",
+  "Colegiaturas": "Colegiaturas de nivel preescolar a bachillerato, con tope anual por nivel.",
+  "Seguros GMM": "Primas de seguros de gastos médicos mayores.",
+  "Hipoteca": "Intereses reales de créditos hipotecarios (constancia anual del banco).",
+};
+
+const YEAR_DEFAULT = 2026;
+
+// --------------------------------------------------------------------------
+// Ejecución de herramientas (SIEMPRE filtra por user.id)
+// --------------------------------------------------------------------------
+
+async function toolGetSummary(
+  supabase: SupabaseClient, user: AuthenticatedUser, year?: number, categoria?: string,
+): Promise<unknown> {
+  const y = year ?? YEAR_DEFAULT;
+  let query = supabase.schema("facturapp").from("invoices")
+    .select("categoria, total").eq("user_id", user.id).eq("anio", y);
+  if (categoria) query = query.eq("categoria", categoria);
+
+  const { data, error } = await query;
+  if (error) throw new Error(`Error consultando resumen: ${error.message}`);
+
+  const cedula: Record<string, { total: number; facturas: number }> = {};
+  let totalGeneral = 0;
+  for (const row of data ?? []) {
+    const cat = row.categoria || "Sin clasificar";
+    const entry = cedula[cat] ?? { total: 0, facturas: 0 };
+    entry.total = Math.round((entry.total + (row.total || 0)) * 100) / 100;
+    entry.facturas += 1;
+    cedula[cat] = entry;
+    totalGeneral = Math.round((totalGeneral + (row.total || 0)) * 100) / 100;
+  }
+  return { year: y, categorias: cedula, total_general: totalGeneral };
+}
+
+async function toolListInvoices(
+  supabase: SupabaseClient, user: AuthenticatedUser,
+  year?: number, month?: number, categoria?: string,
+): Promise<unknown> {
+  const y = year ?? YEAR_DEFAULT;
+  let query = supabase.schema("facturapp").from("invoices")
+    .select("uuid_fiscal, emisor_nombre, fecha_emision, categoria, total, estatus")
+    .eq("user_id", user.id).eq("anio", y);
+  if (categoria) query = query.eq("categoria", categoria);
+  query = query.order("fecha_emision", { ascending: false });
+
+  const { data, error } = await query;
+  if (error) throw new Error(`Error consultando facturas: ${error.message}`);
+
+  let rows = data ?? [];
+  if (month) {
+    const mm = String(month).padStart(2, "0");
+    rows = rows.filter((r) => (r.fecha_emision ?? "").slice(5, 7) === mm);
+  }
+
+  return {
+    year: y,
+    count: rows.length,
+    invoices: rows.map((r) => ({
+      uuid: r.uuid_fiscal, emisor: r.emisor_nombre, fecha: r.fecha_emision,
+      categoria: r.categoria, total: r.total, estatus: r.estatus,
+    })),
+  };
+}
+
+async function toolReclassifyInvoice(
+  supabase: SupabaseClient, user: AuthenticatedUser, uuid: string, nuevaCategoria: string,
+): Promise<unknown> {
+  const { data: inv, error: selectError } = await supabase
+    .schema("facturapp").from("invoices")
+    .select("id, categoria")
+    .eq("user_id", user.id).eq("uuid_fiscal", uuid.toUpperCase())
+    .maybeSingle();
+
+  if (selectError) throw new Error(`Error buscando factura: ${selectError.message}`);
+  if (!inv) return { ok: false, mensaje: "No encontré esa factura en tu archivo." };
+
+  const anterior = inv.categoria;
+  const { error: updateError } = await supabase
+    .schema("facturapp").from("invoices")
+    .update({ categoria: nuevaCategoria, confianza: 1.0 })
+    .eq("id", inv.id);
+
+  if (updateError) throw new Error(`Error actualizando factura: ${updateError.message}`);
+  return { ok: true, uuid, de: anterior, a: nuevaCategoria };
+}
+
+/** MOCK — igual que export_zip() en export.py. No genera ningún ZIP real
+ * (eso es Fase 4 del sistema original; no adelantarlo aquí). */
+async function toolExportPackage(
+  supabase: SupabaseClient, user: AuthenticatedUser, year?: number,
+): Promise<unknown> {
+  const y = year ?? YEAR_DEFAULT;
+  const { data, error } = await supabase
+    .schema("facturapp").from("invoices")
+    .select("id").eq("user_id", user.id).eq("anio", y);
+  if (error) throw new Error(`Error consultando facturas para exportar: ${error.message}`);
+  return { formato: "zip", archivos: (data ?? []).length, status: "mock_fase4" };
+}
+
+function toolExplainDeductions(): unknown {
+  return { categorias: CATEGORIAS_INFO };
+}
+
+async function executeTool(
+  name: string, supabase: SupabaseClient, user: AuthenticatedUser, args: Record<string, unknown>,
+): Promise<unknown> {
+  switch (name) {
+    case "get_summary":
+      return toolGetSummary(supabase, user, args.year as number | undefined, args.categoria as string | undefined);
+    case "list_invoices":
+      return toolListInvoices(
+        supabase, user,
+        args.year as number | undefined, args.month as number | undefined, args.categoria as string | undefined,
+      );
+    case "reclassify_invoice":
+      return toolReclassifyInvoice(supabase, user, (args.uuid as string) ?? "", (args.nueva_categoria as string) ?? "");
+    case "export_package":
+      return toolExportPackage(supabase, user, args.year as number | undefined);
+    case "explain_deductions":
+      return toolExplainDeductions();
+    default:
+      return { error: `herramienta desconocida: ${name}` };
+  }
+}
+
+// --------------------------------------------------------------------------
+// LLM (OpenAI) — aislado para poder mockearlo en tests
+// --------------------------------------------------------------------------
+
+const SYSTEM_PROMPT =
+  "Eres el asistente de FacturasMX, una plataforma mexicana de deducciones " +
+  "fiscales (CFDI 4.0). Responde SIEMPRE en español, claro y accionable. " +
+  "Usa las herramientas disponibles para consultar los datos reales del " +
+  "usuario antes de responder con montos o listas. No inventes cifras.";
+
+class ChatServiceError extends Error {
+  constructor(public userMessage: string) {
+    super(userMessage);
+  }
+}
+
+// deno-lint-ignore no-explicit-any
+type LlmMessage = { content: string | null; tool_calls?: any[] | null };
+
+/** Traduce un error de OpenAI a ChatServiceError (mensaje legible + log).
+ * Función pura y separada de la llamada de red para poder testearla con
+ * instancias reales de error construidas a mano — mismo patrón que
+ * test_chat.py, que monkeypatchea `_get_client` en vez de mockear HTTP. */
+function translateOpenAIError(exc: unknown): ChatServiceError {
+  if (exc instanceof RateLimitError) {
+    console.warn("OpenAI rate limit:", exc.message);
+    return new ChatServiceError("Estoy un poco ocupado en este momento. Intenta de nuevo en unos segundos.");
+  }
+  if (exc instanceof APIError) {
+    console.error("OpenAI APIError:", exc.message);
+    return new ChatServiceError("Tengo problemas para conectarme con el asistente. Intenta más tarde.");
+  }
+  if (exc instanceof OpenAIError) {
+    console.error("OpenAI error inesperado:", exc.message);
+    return new ChatServiceError("Algo salió mal procesando tu mensaje. Intenta de nuevo.");
+  }
+  throw exc;
+}
+
+/** Llama a OpenAI de verdad. Los tests de orquestación inyectan un mock vía
+ * el parámetro `chatCompletionFn` de chat() (no se monkeypatchea un módulo
+ * — no aplica en ESM; es inyección de dependencia, mismo patrón que
+ * ValidationEngine.classify en validator.ts, Fase M3). La traducción de
+ * errores (translateOpenAIError) sí se testea aislada y directamente. */
+async function realChatCompletion(
+  // deno-lint-ignore no-explicit-any
+  messages: any[], tools: any[], apiKey: string, model: string,
+): Promise<LlmMessage> {
+  const client = new OpenAI({ apiKey });
+  try {
+    const resp = await client.chat.completions.create({
+      model, messages, tools, tool_choice: "auto",
+    });
+    return resp.choices[0].message;
+  } catch (exc) {
+    throw translateOpenAIError(exc);
+  }
+}
+
+// --------------------------------------------------------------------------
+// Orquestador
+// --------------------------------------------------------------------------
+
+interface ChatResult {
+  response: string;
+  tools_used: string[];
+}
+
+type ChatCompletionFn = (
+  // deno-lint-ignore no-explicit-any
+  messages: any[], tools: any[],
+) => Promise<LlmMessage>;
+
+interface ChatHistoryMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+const HISTORY_LIMIT = 20;
+
+/** Lee los últimos N mensajes de `chat_messages` para un usuario, en orden
+ * cronológico (más viejo primero, como espera `chat()`). Extensión Fase
+ * M4b para el canal de WhatsApp — ver nota de divergencia arriba. */
+async function getRecentChatHistory(
+  supabase: SupabaseClient, userId: number,
+): Promise<ChatHistoryMessage[]> {
+  const { data, error } = await supabase
+    .schema("facturapp").from("chat_messages")
+    .select("role, content")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false })
+    .limit(HISTORY_LIMIT);
+
+  if (error) throw new Error(`Error consultando historial de chat: ${error.message}`);
+  return ((data ?? []) as ChatHistoryMessage[]).reverse();
+}
+
+/** Port 1:1 de chat() en chat.py — sin `history`, se comporta exactamente
+ * igual que la versión original (NO pasa historial, ver divergencia #1).
+ * `history` es una extensión Fase M4b usada solo por el canal de WhatsApp. */
+async function chat(
+  supabase: SupabaseClient,
+  user: AuthenticatedUser,
+  message: string,
+  chatCompletionFn: ChatCompletionFn,
+  history: ChatHistoryMessage[] = [],
+): Promise<ChatResult> {
+  // deno-lint-ignore no-explicit-any
+  const messages: any[] = [
+    { role: "system", content: SYSTEM_PROMPT },
+    ...history,
+    { role: "user", content: message },
+  ];
+  const toolsUsed: string[] = [];
+
+  try {
+    const first = await chatCompletionFn(messages, TOOLS);
+    const toolCalls = first.tool_calls;
+
+    if (!toolCalls || toolCalls.length === 0) {
+      return { response: first.content ?? "", tools_used: toolsUsed };
+    }
+
+    messages.push({
+      role: "assistant",
+      content: first.content,
+      tool_calls: toolCalls.map((tc) => ({
+        id: tc.id, type: "function",
+        function: { name: tc.function.name, arguments: tc.function.arguments },
+      })),
+    });
+
+    for (const tc of toolCalls) {
+      const name = tc.function.name;
+      let args: Record<string, unknown> = {};
+      try {
+        args = JSON.parse(tc.function.arguments || "{}");
+      } catch {
+        args = {};
+      }
+      const result = await executeTool(name, supabase, user, args);
+      toolsUsed.push(name);
+      messages.push({
+        role: "tool", tool_call_id: tc.id, content: JSON.stringify(result),
+      });
+    }
+
+    const final = await chatCompletionFn(messages, TOOLS);
+    return { response: final.content ?? "", tools_used: toolsUsed };
+  } catch (exc) {
+    if (exc instanceof ChatServiceError) {
+      return { response: exc.userMessage, tools_used: [] };
+    }
+    throw exc;
+  }
+}
+
 // ===== supabase/functions/whatsapp-webhook/index.ts =====
 // Fase M4 — Webhook real de WhatsApp (Meta Cloud API).
+// Fase M4b — se agrega chat conversacional (texto) reusando chat.ts (M5.5).
 //
 // GET: handshake de verificación (sin cambios desde M1).
-// POST: verifica firma HMAC → extrae mensajes con documento → por cada uno:
-//   resuelve/crea usuario por teléfono → descarga el adjunto (Graph API,
-//   dos pasos) → parsea/valida/clasifica/guarda (ingestInvoice, compartido
-//   con el futuro webhook de SendGrid) → responde por WhatsApp.
+// POST: verifica firma HMAC → extrae mensajes:
+//   - "document" → resuelve/crea usuario por teléfono → descarga el
+//     adjunto (Graph API, dos pasos) → parsea/valida/clasifica/guarda
+//     (ingestInvoice, compartido con sendgrid-webhook) → responde.
+//   - "text" → resuelve/crea usuario por teléfono → comando rápido (sin IA)
+//     o chat() con historial de chat_messages → guarda el turno → responde.
 //
 // Siempre responde 200 a Meta, salvo firma inválida (401) — un fallo al
-// descargar o enviar un mensaje individual se registra y NO rompe el resto
-// del batch (mismo comportamiento que whatsapp_webhook() en main.py).
+// procesar un mensaje individual se registra (console + debug_logs) y NO
+// rompe el resto del batch (mismo comportamiento que whatsapp_webhook() en
+// main.py para documentos; el manejo de texto es una extensión M4b sin
+// equivalente en Python — ver chat.ts y whatsapp.ts para el detalle de la
+// divergencia).
+//
+// El patrón de esta fase (comandos rápidos antes de IA, log a debug_logs,
+// historial de conversación, dispatch por tipo de mensaje) está adoptado
+// de WHATSAPP_BOT_ARCHITECTURE.md — arquitectura ya probada en producción
+// en otro proyecto sobre el mismo Supabase.
 
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import {
-  downloadMediaFromMeta, extractWhatsappMessages, sendWhatsappMessage,
-  verifyWhatsappSignature, whatsappReplyText,
-} from "../_shared/whatsapp.ts";
 
 // SUPABASE_URL y SUPABASE_SERVICE_ROLE_KEY vienen inyectadas automáticamente
 // en runtime por Supabase — no requieren `supabase secrets set`.
@@ -907,14 +1479,54 @@ async function handleVerification(url: URL): Promise<Response> {
   return new Response("Verificación fallida", { status: 403, headers: corsHeaders });
 }
 
+async function handleTextMessage(
+  // deno-lint-ignore no-explicit-any
+  supabase: any, msg: { from: string; text: string; profile_name: string | null },
+  whatsappToken: string, phoneNumberId: string,
+): Promise<Record<string, unknown>> {
+  const user = await getOrCreateUserByPhone(supabase, msg.from, msg.profile_name);
+
+  const quickReply = interceptQuickCommand(msg.text);
+  if (quickReply !== null) {
+    await logDebug(supabase, "whatsapp: comando rápido", { from: msg.from, text: msg.text });
+    await sendWhatsappMessage(msg.from, quickReply, whatsappToken, phoneNumberId);
+    return { from: msg.from, tipo: "comando_rapido" };
+  }
+
+  await supabase.schema("facturapp").from("chat_messages")
+    .insert({ user_id: user.id, role: "user", content: msg.text });
+
+  const history = await getRecentChatHistory(supabase, user.id);
+  const apiKey = Deno.env.get("OPENAI_API_KEY") ?? "";
+  const model = Deno.env.get("OPENAI_MODEL") ?? "gpt-4o";
+
+  const result = await chat(
+    supabase, user, msg.text,
+    (messages, tools) => realChatCompletion(messages, tools, apiKey, model),
+    history,
+  );
+
+  await supabase.schema("facturapp").from("chat_messages")
+    .insert({ user_id: user.id, role: "assistant", content: result.response });
+
+  await logDebug(supabase, "whatsapp: chat respondido", {
+    from: msg.from, tools_used: result.tools_used,
+  });
+
+  await sendWhatsappMessage(msg.from, result.response, whatsappToken, phoneNumberId);
+  return { from: msg.from, tipo: "chat", tools_used: result.tools_used };
+}
+
 async function handleIncoming(req: Request): Promise<Response> {
   const bodyBytes = new Uint8Array(await req.arrayBuffer());
   const signature = req.headers.get("X-Hub-Signature-256");
   const appSecret = Deno.env.get("WHATSAPP_APP_SECRET");
+  const supabase = getSupabaseClient();
 
   if (appSecret) {
     if (!verifyWhatsappSignature(bodyBytes, signature, appSecret)) {
       console.warn("Firma de WhatsApp inválida");
+      await logDebug(supabase, "whatsapp: firma inválida", { signature });
       return new Response(JSON.stringify({ detail: "Firma inválida" }), {
         status: 401,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -934,14 +1546,14 @@ async function handleIncoming(req: Request): Promise<Response> {
     });
   }
 
-  const mensajes = extractWhatsappMessages(payload);
-  const supabase = getSupabaseClient();
+  const documentos = extractWhatsappMessages(payload);
+  const textos = extractWhatsappTextMessages(payload);
   const whatsappToken = Deno.env.get("WHATSAPP_ACCESS_TOKEN") ?? "";
   const phoneNumberId = Deno.env.get("WHATSAPP_PHONE_NUMBER_ID") ?? "";
 
   const resultados: Array<Record<string, unknown>> = [];
 
-  for (const msg of mensajes) {
+  for (const msg of documentos) {
     let user;
     try {
       user = await getOrCreateUserByPhone(supabase, msg.from, msg.profile_name);
@@ -957,6 +1569,7 @@ async function handleIncoming(req: Request): Promise<Response> {
       contenido = media.content;
     } catch (exc) {
       console.error(`Error descargando adjunto de WhatsApp (media_id=${msg.media_id}):`, exc);
+      await logDebug(supabase, "whatsapp: error descargando adjunto", { from: msg.from, error: String(exc) });
       resultados.push({ from: msg.from, error: "No se pudo descargar el adjunto de WhatsApp" });
       continue;
     }
@@ -966,6 +1579,7 @@ async function handleIncoming(req: Request): Promise<Response> {
       ingestResult = await ingestInvoice(supabase, user, contenido, msg.filename);
     } catch (exc) {
       console.error(`Error procesando factura de ${msg.from}:`, exc);
+      await logDebug(supabase, "whatsapp: error procesando factura", { from: msg.from, error: String(exc) });
       resultados.push({ from: msg.from, error: "No se pudo procesar la factura" });
       continue;
     }
@@ -978,6 +1592,16 @@ async function handleIncoming(req: Request): Promise<Response> {
       );
     } catch (exc) {
       console.error(`No se pudo enviar la respuesta de WhatsApp a ${msg.from}:`, exc);
+    }
+  }
+
+  for (const msg of textos) {
+    try {
+      resultados.push(await handleTextMessage(supabase, msg, whatsappToken, phoneNumberId));
+    } catch (exc) {
+      console.error(`Error procesando mensaje de texto de ${msg.from}:`, exc);
+      await logDebug(supabase, "whatsapp: error en chat", { from: msg.from, error: String(exc) });
+      resultados.push({ from: msg.from, error: "No se pudo procesar tu mensaje" });
     }
   }
 
@@ -1004,3 +1628,5 @@ serve(async (req: Request) => {
 
   return new Response("Método no soportado", { status: 405, headers: corsHeaders });
 });
+
+type AuthenticatedUser = AppUser;
