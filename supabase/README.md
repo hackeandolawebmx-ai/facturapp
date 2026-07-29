@@ -1,4 +1,4 @@
-# FacturasMX — Migración a Supabase (Fase M6)
+# FacturasMX — Migración a Supabase (Fase M4b)
 
 Migración de `facturapp` de Railway/FastAPI/SQLite → Supabase Edge
 Functions/TypeScript/PostgreSQL. **El proyecto Python en `facturapp/` sigue
@@ -15,14 +15,15 @@ que esté completa y validada; no reemplaza nada todavía.
 | M4 | Webhook real de WhatsApp (HMAC, descarga de media, guardar, responder) | ✅ |
 | M5 | Webhook real de SendGrid (email inbound) | ✅ |
 | M5.5 | Endpoint `/api/chat` autenticado (JWT Bearer, OpenAI function calling) | ✅ |
-| **M6** | Migrar datos existentes de SQLite a este esquema | ✅ Este documento (ver caveat sobre datos de prueba) |
+| M6 | Migrar datos existentes de SQLite a este esquema | ✅ (ver caveat sobre datos de prueba) |
+| **M4b** | Chat conversacional por WhatsApp (texto) + comandos rápidos + `debug_logs` | ✅ Este documento |
 
 ## Estructura
 
 ```
 supabase/
 ├── functions/
-│   ├── whatsapp-webhook/index.ts   # GET + POST completos (Fase M4)
+│   ├── whatsapp-webhook/index.ts   # GET + POST: documentos (M4) + texto/chat (M4b)
 │   ├── sendgrid-webhook/index.ts   # POST completo (Fase M5)
 │   ├── api-chat/index.ts           # POST autenticado, JWT Bearer (Fase M5.5)
 │   └── _shared/
@@ -46,12 +47,17 @@ supabase/
 │       ├── invoices.test.ts        # 7 tests (contra fake_supabase_client)
 │       ├── auth.ts                 # verifyAccessToken/getCurrentUser — JWT HS256, mismo SECRET_KEY que Python (Fase M5.5)
 │       ├── auth.test.ts            # 11 tests
-│       ├── chat.ts                 # port de chat.py — classifyIntent, TOOLS, chat() orquestador (Fase M5.5)
-│       ├── chat.test.ts            # 13 tests
-│       ├── fake_supabase_client.ts # cliente Supabase FALSO solo para tests — no es Postgres real (select/insert/update/order)
+│       ├── chat.ts                 # port de chat.py — classifyIntent, TOOLS, chat() orquestador (M5.5) + history/getRecentChatHistory (M4b)
+│       ├── chat.test.ts            # 16 tests
+│       ├── whatsapp_commands.ts    # comandos rápidos de WhatsApp sin IA (Fase M4b, no en Python)
+│       ├── whatsapp_commands.test.ts # 5 tests
+│       ├── debug_log.ts            # logDebug() → facturapp.debug_logs (Fase M4b, no en Python)
+│       ├── fake_supabase_client.ts # cliente Supabase FALSO solo para tests — no es Postgres real (select/insert/update/order/limit)
 │       └── testdata/               # los mismos 4 XML de seed de Fase 1
 ├── migrations/
-│   └── 0001_initial_schema.sql     # esquema `facturapp` (users, invoices, chat_messages)
+│   ├── 0001_initial_schema.sql     # esquema `facturapp` (users, invoices, chat_messages)
+│   ├── 0002_seed_test_users.sql    # datos migrados de facturapp.db (Fase M6)
+│   └── 0003_debug_logs.sql         # facturapp.debug_logs (Fase M4b)
 ├── config.toml
 └── deno.json                       # import map (@libs/xml, @std/assert, @supabase/supabase-js) + tasks
 ```
@@ -376,6 +382,95 @@ vez de depender de la redirección de la shell.
 SELECT COUNT(*) FROM facturapp.users;   -- debe dar 2
 ```
 
+## Chat conversacional por WhatsApp + `debug_logs` (Fase M4b)
+
+**Contexto:** existe otro proyecto (bot de WhatsApp para inventario de rancho)
+en este mismo Supabase que ya corre en producción real, documentado en
+`WHATSAPP_BOT_ARCHITECTURE.md` (raíz del repo). Esta fase adopta ese patrón
+de arquitectura probado — pero **NO es un port de Python**: el
+`whatsapp_webhook()` original solo procesa documentos adjuntos (facturas),
+nunca texto conversacional. Todo lo de esta sección es una extensión nueva,
+declarada explícitamente, no un comportamiento heredado del sistema Python.
+
+**Qué se agregó:**
+
+1. **`facturapp.debug_logs`** (`0003_debug_logs.sql`) — tabla de diagnóstico
+   para el webhook (firma inválida, errores de descarga/procesamiento/chat).
+   Sin esto, la única forma de depurar problemas de Meta era
+   `supabase functions logs`, que rota rápido y no persiste. Mismo patrón
+   que `debug_logs` del bot de referencia, pero dentro del esquema
+   `facturapp` (no `public`) para no colisionar con la tabla homónima del
+   otro proyecto.
+2. **`extractWhatsappTextMessages()`** (`whatsapp.ts`) — extrae mensajes de
+   tipo `"text"` del payload de Meta (antes solo se extraían `"document"`).
+3. **`interceptQuickCommand()`** (`whatsapp_commands.ts`, nuevo) — intercepta
+   saludos (`"hola"`) y pedidos de ayuda (`"ayuda"`) con una respuesta fija,
+   **antes** de llamar a OpenAI — ahorra latencia/costo en los mensajes más
+   comunes. Deliberadamente conservador: solo matchea el mensaje completo
+   (con `^...$`), nunca substrings — `"hola, cuánto llevo en médicos"` NO se
+   intercepta, pasa a OpenAI completo.
+4. **`chat()` acepta `history` opcional** (`chat.ts`) — cuarto parámetro,
+   default `[]`. El endpoint `/api/chat` (M5.5, port fiel de Python) sigue
+   sin pasarlo — preserva exactamente el comportamiento portado. El webhook
+   de WhatsApp sí lo usa: llama a `getRecentChatHistory()` (últimos 20
+   mensajes de `facturapp.chat_messages` para ese `user_id`, orden
+   cronológico) para dar continuidad conversacional — algo que no existe en
+   ningún endpoint del sistema Python original.
+5. **`whatsapp-webhook/index.ts` ahora despacha por tipo de mensaje:**
+   `"document"` sigue el flujo de M4 sin cambios (`ingestInvoice`);
+   `"text"` resuelve/crea el usuario por teléfono, intenta un comando
+   rápido, y si no aplica llama a `chat()` con historial reusando
+   **exactamente** las mismas 5 herramientas de M5.5 (`get_summary`,
+   `list_invoices`, `reclassify_invoice`, `export_package`,
+   `explain_deductions`) — un usuario puede ahora preguntar "¿cuánto llevo
+   en médicos?" por WhatsApp, no solo por el dashboard web.
+
+**Extensión del fake client:** se agregó `.limit(n)` a `FakeQueryBuilder`
+(necesario para `getRecentChatHistory`), y las tablas `chat_messages` y
+`debug_logs` al estado inicial de `FakeSupabaseClient`.
+
+**Verificado con 23 tests nuevos** (`whatsapp.test.ts` +4,
+`whatsapp_commands.test.ts` +5, `chat.test.ts` +3): extracción de texto,
+comandos rápidos (incluyendo el caso negativo de no-interceptar preguntas
+reales), `chat()` con y sin historial, y `getRecentChatHistory()` con
+aislamiento por usuario.
+
+```bash
+cd supabase
+deno task test    # 95/95 tests
+deno task check   # type-check limpio
+```
+
+### `whatsapp-webhook-bundled.ts` (raíz del repo)
+
+`bundle_webhook.py` (raíz del repo) concatena todos los módulos que usa
+`whatsapp-webhook/index.ts` en un solo archivo — útil para pegar el webhook
+completo en un solo lugar (p.ej. el editor de funciones del dashboard de
+Supabase) sin depender de imports relativos entre archivos.
+
+**Se encontró y corrigió un bundle desactualizado y roto** de una sesión
+previa: le faltaban `cors.ts` y `accounts.ts` por completo (`corsHeaders` y
+`placeholderRfc` quedaban indefinidos), el regex que quitaba imports
+internos solo cubría `../_shared/...` — nunca los imports `./...` entre
+módulos del mismo directorio (`invoices.ts` importando `./parser.ts`, etc.
+quedaban colgando, apuntando a archivos inexistentes) —, y era de antes de
+M4b/M5.5, sin `auth.ts`/`chat.ts`/`debug_log.ts`/`whatsapp_commands.ts` — es
+decir, sin el chat conversacional en absoluto.
+
+`bundle_webhook.py` corregido: incluye los 11 módulos correctos en orden de
+dependencia, reescribe especificadores "bare" (`@libs/xml/parse`, `openai`,
+`@supabase/supabase-js`) a su forma explícita `jsr:`/`npm:` (el bundle vive
+fuera de `supabase/`, sin el import map de `deno.json`), deduplica imports
+externos repetidos entre módulos, y agrega un alias de compatibilidad
+(`type AuthenticatedUser = AppUser`) porque `chat.ts` importa ese tipo desde
+`auth.ts`, que deliberadamente no se incluye (solo lo usa `api-chat`, no el
+webhook de WhatsApp). Verificado con `deno check whatsapp-webhook-bundled.ts`
+— limpio.
+
+```bash
+python3 bundle_webhook.py   # regenerar tras cualquier cambio en los módulos listados
+```
+
 ## Esquema Postgres (`0001_initial_schema.sql`)
 
 Todo vive en un **esquema dedicado `facturapp`** (no `public`) para convivir
@@ -474,9 +569,15 @@ curl "https://<tu-project-ref>.supabase.co/functions/v1/whatsapp-webhook?hub.mod
 
 ## Qué NO se hizo todavía (por diseño)
 
-- ❌ Los webhooks de WhatsApp (M4), SendGrid (M5), el endpoint `/api/chat`
-  (M5.5) y la migración de datos (M6) están completos — toda la lógica
-  funcional del sistema Python está portada.
+- ❌ Los webhooks de WhatsApp (M4 + chat conversacional M4b), SendGrid (M5),
+  el endpoint `/api/chat` (M5.5) y la migración de datos (M6) están
+  completos — toda la lógica funcional del sistema Python está portada, más
+  la extensión de chat por WhatsApp (M4b, declarada explícitamente como NO
+  existente en Python).
+- ❌ **El chat por WhatsApp (M4b) no se probó contra Meta/OpenAI reales**
+  — mismo caveat que M4: cubierto por 23 tests contra el fake client, pero
+  no hay smoke test real (requeriría enviar un mensaje real desde un
+  teléfono, autorización explícita tuya).
 - ❌ **La migración de datos (M6) solo cubrió los datos de prueba presentes
   en `facturapp.db` local** (2 usuarios `@example.com`, 0 facturas, 0
   chats). Si la producción real vive en un SQLite distinto (volumen de

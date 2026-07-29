@@ -105,6 +105,52 @@ export function extractWhatsappMessages(payload: { entry?: unknown[] }): Extract
   return results;
 }
 
+export interface ExtractedTextMessage {
+  from: string;
+  text: string;
+  profile_name: string | null;
+}
+
+/** Recorre el mismo payload que extractWhatsappMessages(), pero se queda
+ * con los mensajes de tipo "text" (cuerpo no vacío) en vez de "document".
+ *
+ * NO existe en whatsapp_service.py — el sistema Python original solo
+ * procesa documentos adjuntos (facturas), nunca texto conversacional por
+ * WhatsApp. Esto es una extensión nueva (Fase M4b) que habilita chat vía
+ * WhatsApp reusando el mismo `chat()` de `_shared/chat.ts` (Fase M5.5),
+ * adoptando el patrón probado en WHATSAPP_BOT_ARCHITECTURE.md. */
+export function extractWhatsappTextMessages(payload: { entry?: unknown[] }): ExtractedTextMessage[] {
+  const entries = (payload.entry ?? []) as Array<Record<string, unknown>>;
+  const results: ExtractedTextMessage[] = [];
+
+  for (const entry of entries) {
+    const changes = (entry.changes ?? []) as Array<Record<string, unknown>>;
+    for (const change of changes) {
+      const value = (change.value ?? {}) as Record<string, unknown>;
+      const contacts = (value.contacts ?? []) as Array<Record<string, unknown>>;
+      const profileNames = new Map<string, string | null>();
+      for (const c of contacts) {
+        const waId = c.wa_id as string | undefined;
+        const profile = (c.profile ?? {}) as Record<string, unknown>;
+        if (waId) profileNames.set(waId, (profile.name as string) ?? null);
+      }
+
+      const messages = (value.messages ?? []) as Array<Record<string, unknown>>;
+      for (const msg of messages) {
+        if (msg.type !== "text") continue;
+
+        const textObj = (msg.text ?? {}) as Record<string, unknown>;
+        const body = ((textObj.body as string) ?? "").trim();
+        if (!body) continue;
+
+        const phone = (msg.from as string) ?? "";
+        results.push({ from: phone, text: body, profile_name: profileNames.get(phone) ?? null });
+      }
+    }
+  }
+  return results;
+}
+
 // ---------------------------------------------------------------------
 // Graph API: descargar media (dos pasos) y enviar mensajes
 // ---------------------------------------------------------------------

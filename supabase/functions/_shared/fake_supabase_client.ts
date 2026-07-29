@@ -15,7 +15,7 @@
 type Row = Record<string, any>;
 
 export class FakeSupabaseClient {
-  tables: Record<string, Row[]> = { users: [], invoices: [] };
+  tables: Record<string, Row[]> = { users: [], invoices: [], chat_messages: [], debug_logs: [] };
   private nextId: Record<string, number> = { users: 1, invoices: 1 };
 
   schema(_name: string) {
@@ -34,6 +34,7 @@ class FakeQueryBuilder {
   private insertRow: Row | null = null;
   private updatePatch: Row | null = null;
   private orderBy: { col: string; ascending: boolean } | null = null;
+  private limitN: number | null = null;
 
   constructor(private client: FakeSupabaseClient, private table: string) {}
 
@@ -49,6 +50,11 @@ class FakeQueryBuilder {
 
   order(col: string, options?: { ascending?: boolean }) {
     this.orderBy = { col, ascending: options?.ascending ?? true };
+    return this;
+  }
+
+  limit(n: number) {
+    this.limitN = n;
     return this;
   }
 
@@ -76,7 +82,7 @@ class FakeQueryBuilder {
         return 0;
       });
     }
-    return rows;
+    return this.limitN !== null ? rows.slice(0, this.limitN) : rows;
   }
 
   private project(row: Row): Row {

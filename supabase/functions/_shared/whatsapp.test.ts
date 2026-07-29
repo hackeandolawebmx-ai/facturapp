@@ -9,7 +9,7 @@
 import { createHmac } from "node:crypto";
 import { assertEquals } from "@std/assert";
 import {
-  extractWhatsappMessages, verifyWhatsappSignature, whatsappReplyText,
+  extractWhatsappMessages, extractWhatsappTextMessages, verifyWhatsappSignature, whatsappReplyText,
 } from "./whatsapp.ts";
 
 const enc = (s: string) => new TextEncoder().encode(s);
@@ -108,6 +108,38 @@ Deno.test("extractWhatsappMessages: documento sin media_id se ignora", () => {
 
 Deno.test("extractWhatsappMessages: payload vacío devuelve []", () => {
   assertEquals(extractWhatsappMessages({}), []);
+});
+
+// ---- Extracción de mensajes de texto (Fase M4b) -----------------------------
+
+Deno.test("extractWhatsappTextMessages: extrae texto con remitente y profile_name", () => {
+  const payload = {
+    entry: [{ changes: [{ value: {
+      contacts: [{ wa_id: "555", profile: { name: "Cliente WA" } }],
+      messages: [{ from: "555", type: "text", text: { body: "¿cuánto llevo?" } }],
+    } }] }],
+  };
+  const messages = extractWhatsappTextMessages(payload);
+  assertEquals(messages.length, 1);
+  assertEquals(messages[0], { from: "555", text: "¿cuánto llevo?", profile_name: "Cliente WA" });
+});
+
+Deno.test("extractWhatsappTextMessages: ignora mensajes que no son text", () => {
+  const payload = metaDocumentPayload("5511111111111");
+  assertEquals(extractWhatsappTextMessages(payload), []);
+});
+
+Deno.test("extractWhatsappTextMessages: texto vacío (solo espacios) se ignora", () => {
+  const payload = {
+    entry: [{ changes: [{ value: { messages: [
+      { from: "555", type: "text", text: { body: "   " } },
+    ] } }] }],
+  };
+  assertEquals(extractWhatsappTextMessages(payload), []);
+});
+
+Deno.test("extractWhatsappTextMessages: payload vacío devuelve []", () => {
+  assertEquals(extractWhatsappTextMessages({}), []);
 });
 
 // ---- Mapeo de estatus → mensaje de WhatsApp ---------------------------------

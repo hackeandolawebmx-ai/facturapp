@@ -6,7 +6,7 @@ import { assert, assertEquals, assertThrows } from "@std/assert";
 import { APIError, APIConnectionError, OpenAIError, RateLimitError } from "openai";
 import { FakeSupabaseClient } from "./fake_supabase_client.ts";
 import {
-  ChatIntent, ChatServiceError, chat, classifyIntent, translateOpenAIError,
+  ChatIntent, ChatServiceError, chat, classifyIntent, getRecentChatHistory, translateOpenAIError,
 } from "./chat.ts";
 
 // deno-lint-ignore no-explicit-any
@@ -198,3 +198,58 @@ Deno.test("chat(): un error NO relacionado con OpenAI SÍ se propaga (lo atrapa 
 });
 
 class RuntimeErrorLike extends Error {}
+
+// ---- Historial de conversación (Fase M4b, extensión solo para WhatsApp) ----
+
+Deno.test("chat(): con history, el mensaje previo llega a chatCompletionFn", async () => {
+  const supabase = client();
+  supabase.tables.users.push({ id: 1, rfc: "DAXX860715XX0" });
+
+  // deno-lint-ignore no-explicit-any
+  let seenMessages: any[] = [];
+  const result = await chat(
+    supabase, { id: 1, rfc: "DAXX860715XX0" }, "¿y en marzo?",
+    async (messages) => {
+      seenMessages = messages;
+      return { content: "Respuesta con contexto", tool_calls: null };
+    },
+    [{ role: "user", content: "mis facturas de febrero" }, { role: "assistant", content: "Tienes 2 facturas." }],
+  );
+
+  assertEquals(result.response, "Respuesta con contexto");
+  // system, historial (2), mensaje actual
+  assertEquals(seenMessages.length, 4);
+  assertEquals(seenMessages[1], { role: "user", content: "mis facturas de febrero" });
+  assertEquals(seenMessages[3], { role: "user", content: "¿y en marzo?" });
+});
+
+Deno.test("chat(): sin history (default), se comporta igual que M5.5 (solo system + mensaje actual)", async () => {
+  const supabase = client();
+  supabase.tables.users.push({ id: 1, rfc: "DAXX860715XX0" });
+
+  // deno-lint-ignore no-explicit-any
+  let seenMessages: any[] = [];
+  await chat(supabase, { id: 1, rfc: "DAXX860715XX0" }, "hola", async (messages) => {
+    seenMessages = messages;
+    return { content: "hola!", tool_calls: null };
+  });
+
+  assertEquals(seenMessages.length, 2);
+});
+
+// ---- getRecentChatHistory ----------------------------------------------------
+
+Deno.test("getRecentChatHistory: devuelve los mensajes en orden cronológico", async () => {
+  const supabase = client();
+  supabase.tables.chat_messages.push(
+    { id: 1, user_id: 1, role: "user", content: "primero", created_at: "2026-07-01T10:00:00Z" },
+    { id: 2, user_id: 1, role: "assistant", content: "segundo", created_at: "2026-07-01T10:00:05Z" },
+    { id: 3, user_id: 2, role: "user", content: "de otro usuario", created_at: "2026-07-01T10:00:10Z" },
+  );
+
+  const history = await getRecentChatHistory(supabase, 1);
+  assertEquals(history, [
+    { role: "user", content: "primero" },
+    { role: "assistant", content: "segundo" },
+  ]);
+});

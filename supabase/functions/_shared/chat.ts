@@ -27,6 +27,13 @@
  * 5. La forma de la respuesta es `{response: string, tools_used: string[]}`
  *    — no `{response, metadata: {intent, function_called}}` como sugería
  *    el spec; ese campo `metadata` no existe en `ChatResponse` de Python.
+ *
+ * EXTENSIÓN (Fase M4b, NO en Python): `chat()` acepta un parámetro `history`
+ * opcional para el canal de WhatsApp (ver whatsapp-webhook/index.ts), que
+ * SÍ inyecta los últimos mensajes de `chat_messages` para dar continuidad a
+ * la conversación — patrón adoptado de WHATSAPP_BOT_ARCHITECTURE.md. El
+ * endpoint `/api/chat` (M5.5, port fiel de Python) sigue sin pasar historial
+ * — simplemente no usa este parámetro, preservando la paridad 1:1 original.
  */
 import OpenAI, { APIError, OpenAIError, RateLimitError } from "openai";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -322,16 +329,44 @@ export type ChatCompletionFn = (
   messages: any[], tools: any[],
 ) => Promise<LlmMessage>;
 
-/** Port 1:1 de chat() en chat.py. NO pasa historial (ver divergencia #1). */
+export interface ChatHistoryMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+const HISTORY_LIMIT = 20;
+
+/** Lee los últimos N mensajes de `chat_messages` para un usuario, en orden
+ * cronológico (más viejo primero, como espera `chat()`). Extensión Fase
+ * M4b para el canal de WhatsApp — ver nota de divergencia arriba. */
+export async function getRecentChatHistory(
+  supabase: SupabaseClient, userId: number,
+): Promise<ChatHistoryMessage[]> {
+  const { data, error } = await supabase
+    .schema("facturapp").from("chat_messages")
+    .select("role, content")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false })
+    .limit(HISTORY_LIMIT);
+
+  if (error) throw new Error(`Error consultando historial de chat: ${error.message}`);
+  return ((data ?? []) as ChatHistoryMessage[]).reverse();
+}
+
+/** Port 1:1 de chat() en chat.py — sin `history`, se comporta exactamente
+ * igual que la versión original (NO pasa historial, ver divergencia #1).
+ * `history` es una extensión Fase M4b usada solo por el canal de WhatsApp. */
 export async function chat(
   supabase: SupabaseClient,
   user: AuthenticatedUser,
   message: string,
   chatCompletionFn: ChatCompletionFn,
+  history: ChatHistoryMessage[] = [],
 ): Promise<ChatResult> {
   // deno-lint-ignore no-explicit-any
   const messages: any[] = [
     { role: "system", content: SYSTEM_PROMPT },
+    ...history,
     { role: "user", content: message },
   ];
   const toolsUsed: string[] = [];
