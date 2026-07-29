@@ -12,6 +12,7 @@
     "npm:@supabase/postgrest-js@2.110.8": "2.110.8",
     "npm:@supabase/realtime-js@2.110.8": "2.110.8",
     "npm:@supabase/storage-js@2.110.8": "2.110.8",
+    "npm:bcryptjs@2": "2.4.3",
     "npm:openai@4": "4.104.0"
   },
   "jsr": {
@@ -110,6 +111,9 @@
     },
     "asynckit@0.4.0": {
       "integrity": "sha512-Oei9OH4tRh0YqU3GxhX79dM/mwVgvbZJaSNaRk+bshkj0S5cfHcgYakreBjrHwatXKbz+IoIdYLxrKim2MjW0Q=="
+    },
+    "bcryptjs@2.4.3": {
+      "integrity": "sha512-V/Hy/X9Vt7f3BbPJEi8BdVFMByHi+jNXrYkW3huaybV/kQ0KJg0Y6PkEMbn+zeT+i+SiKZ/HMqJGIIt4LZDqNQ=="
     },
     "call-bind-apply-helpers@1.0.2": {
       "integrity": "sha512-Sp1ablJ0ivDkSzjcaJdxEunN5/XvksFJ2sMBFfq6x0ryhQV/2b/KwFe21cMpmHtPOSij8K99/wSfoEuTObmuMQ==",
@@ -302,6 +306,7 @@
       "jsr:@panva/jose@6",
       "jsr:@std/assert@1",
       "jsr:@supabase/supabase-js@2",
+      "npm:bcryptjs@2",
       "npm:openai@4"
     ]
   }

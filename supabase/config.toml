@@ -42,3 +42,33 @@ verify_jwt = false
 # ocurre dentro de la función (_shared/auth.ts, mismo SECRET_KEY que Python).
 [functions.api-chat]
 verify_jwt = false
+
+# Fase M7 -- mismo razonamiento que api-chat: JWT propio (HS256,
+# SECRET_KEY compartido con Python), no JWT de Supabase Auth.
+[functions.auth-register]
+verify_jwt = false
+
+[functions.auth-login]
+verify_jwt = false
+
+[functions.auth-refresh]
+verify_jwt = false
+
+[functions.api-user-profile]
+verify_jwt = false
+
+[functions.api-summary]
+verify_jwt = false
+
+[functions.api-invoices]
+verify_jwt = false
+
+# api-public-* no usan NINGÚN JWT -- se autentican por `web_token` en query
+# param (ver _shared/users.ts: getUserByWebToken). Mismo motivo que los
+# webhooks: sin esto, el gateway de Supabase exigiría un JWT de Supabase
+# Auth antes de que el código de la función corra.
+[functions.api-public-summary]
+verify_jwt = false
+
+[functions.api-public-invoices]
+verify_jwt = false

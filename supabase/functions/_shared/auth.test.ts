@@ -9,8 +9,11 @@
  * el README de la migración.
  */
 import { SignJWT } from "jose";
-import { assertEquals } from "@std/assert";
-import { getCurrentUser, verifyAccessToken } from "./auth.ts";
+import { assert, assertEquals, assertNotEquals } from "@std/assert";
+import {
+  createAccessToken, createRefreshToken, generateWebToken, getCurrentUser,
+  verifyAccessToken, verifyRefreshToken,
+} from "./auth.ts";
 import { FakeSupabaseClient } from "./fake_supabase_client.ts";
 
 const SECRET = "test-secret-suficientemente-largo-para-hs256";
@@ -99,4 +102,35 @@ Deno.test("getCurrentUser: un web_token NO sirve como access token (no es JWT)",
   // deno-lint-ignore no-explicit-any
   const result = await getCurrentUser("Bearer RT9EniZWBD7eu3OemqdxLbEb85VvH-Ee", supabase as any, SECRET);
   assertEquals(result, null);
+});
+
+// ---- createAccessToken / createRefreshToken / verifyRefreshToken (Fase M7) --
+
+Deno.test("createAccessToken: produce un token que verifyAccessToken acepta", async () => {
+  const token = await createAccessToken(42, "DAXX860715XX0", SECRET);
+  const data = await verifyAccessToken(token, SECRET);
+  assertEquals(data, { userId: 42, rfc: "DAXX860715XX0" });
+});
+
+Deno.test("createRefreshToken: produce un token que verifyRefreshToken acepta", async () => {
+  const token = await createRefreshToken(42, "DAXX860715XX0", SECRET);
+  const data = await verifyRefreshToken(token, SECRET);
+  assertEquals(data, { userId: 42, rfc: "DAXX860715XX0" });
+});
+
+Deno.test("verifyRefreshToken: rechaza un access token (type incorrecto)", async () => {
+  const token = await createAccessToken(42, "DAXX860715XX0", SECRET);
+  assertEquals(await verifyRefreshToken(token, SECRET), null);
+});
+
+Deno.test("verifyAccessToken: rechaza un refresh token creado por createRefreshToken", async () => {
+  const token = await createRefreshToken(42, "DAXX860715XX0", SECRET);
+  assertEquals(await verifyAccessToken(token, SECRET), null);
+});
+
+Deno.test("generateWebToken: produce strings distintos y razonablemente largos", () => {
+  const a = generateWebToken();
+  const b = generateWebToken();
+  assertNotEquals(a, b);
+  assert(a.length >= 24);
 });

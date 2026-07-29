@@ -6,7 +6,7 @@
  */
 import { assertEquals } from "@std/assert";
 import { FakeSupabaseClient } from "./fake_supabase_client.ts";
-import { getOrCreateUserByEmail, getOrCreateUserByPhone } from "./users.ts";
+import { getOrCreateUserByEmail, getOrCreateUserByPhone, getUserByWebToken, getUserProfile } from "./users.ts";
 
 // deno-lint-ignore no-explicit-any
 function client(): any {
@@ -70,4 +70,41 @@ Deno.test("getOrCreateUserByEmail: normaliza a minúsculas antes de buscar/crear
   const created = await getOrCreateUserByEmail(supabase, "Mayus@Example.com");
   const found = await getOrCreateUserByEmail(supabase, "mayus@example.com");
   assertEquals(created.id, found.id);
+});
+
+// ---- getUserProfile / getUserByWebToken (Fase M7) ---------------------------
+
+Deno.test("getUserProfile: devuelve el perfil completo por id", async () => {
+  const supabase = client();
+  supabase.tables.users.push({
+    id: 1, email: "daniela@example.com", nombre: "Daniela Ávila",
+    rfc: "DAXX860715XX0", plan: "free", web_token: "TOKEN123", whatsapp_phone: null,
+  });
+
+  const profile = await getUserProfile(supabase, 1);
+  assertEquals(profile, {
+    id: 1, email: "daniela@example.com", nombre: "Daniela Ávila",
+    rfc: "DAXX860715XX0", plan: "free", web_token: "TOKEN123", whatsapp_phone: null,
+  });
+});
+
+Deno.test("getUserProfile: usuario inexistente devuelve null", async () => {
+  const supabase = client();
+  assertEquals(await getUserProfile(supabase, 999), null);
+});
+
+Deno.test("getUserByWebToken: resuelve por token válido", async () => {
+  const supabase = client();
+  supabase.tables.users.push({
+    id: 1, email: "daniela@example.com", nombre: "Daniela Ávila",
+    rfc: "DAXX860715XX0", plan: "free", web_token: "TOKEN123", whatsapp_phone: null,
+  });
+
+  const user = await getUserByWebToken(supabase, "TOKEN123");
+  assertEquals(user?.id, 1);
+});
+
+Deno.test("getUserByWebToken: token inválido devuelve null", async () => {
+  const supabase = client();
+  assertEquals(await getUserByWebToken(supabase, "no-existe"), null);
 });

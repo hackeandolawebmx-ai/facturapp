@@ -110,3 +110,43 @@ export async function getOrCreateUserByEmail(
   }
   return created as AppUser;
 }
+
+export interface UserProfile {
+  id: number;
+  email: string;
+  nombre: string;
+  rfc: string;
+  plan: string;
+  web_token: string | null;
+  whatsapp_phone: string | null;
+}
+
+const PROFILE_COLS = "id, email, nombre, rfc, plan, web_token, whatsapp_phone";
+
+/** Port 1:1 de `/api/user/profile` (User.to_public() en models.py). */
+export async function getUserProfile(
+  supabase: SupabaseClient, userId: number,
+): Promise<UserProfile | null> {
+  const { data, error } = await supabase
+    .schema("facturapp").from("users")
+    .select(PROFILE_COLS)
+    .eq("id", userId)
+    .maybeSingle();
+  if (error) throw new Error(`Error consultando perfil: ${error.message}`);
+  return (data as UserProfile) ?? null;
+}
+
+/** Port 1:1 de `_user_by_token()` en main.py — usado por `/api/public/*`.
+ * `web_token` es un identificador de dashboard público, NO un mecanismo de
+ * autenticación real (ver nota de seguridad en auth.ts). */
+export async function getUserByWebToken(
+  supabase: SupabaseClient, token: string,
+): Promise<UserProfile | null> {
+  const { data, error } = await supabase
+    .schema("facturapp").from("users")
+    .select(PROFILE_COLS)
+    .eq("web_token", token)
+    .maybeSingle();
+  if (error) throw new Error(`Error consultando usuario por token: ${error.message}`);
+  return (data as UserProfile) ?? null;
+}

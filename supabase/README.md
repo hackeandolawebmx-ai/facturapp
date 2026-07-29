@@ -1,4 +1,4 @@
-# FacturasMX — Migración a Supabase (Fase M4b)
+# FacturasMX — Migración a Supabase (Fase M7)
 
 Migración de `facturapp` de Railway/FastAPI/SQLite → Supabase Edge
 Functions/TypeScript/PostgreSQL. **El proyecto Python en `facturapp/` sigue
@@ -16,7 +16,8 @@ que esté completa y validada; no reemplaza nada todavía.
 | M5 | Webhook real de SendGrid (email inbound) | ✅ |
 | M5.5 | Endpoint `/api/chat` autenticado (JWT Bearer, OpenAI function calling) | ✅ |
 | M6 | Migrar datos existentes de SQLite a este esquema | ✅ (ver caveat sobre datos de prueba) |
-| **M4b** | Chat conversacional por WhatsApp (texto) + comandos rápidos + `debug_logs` | ✅ Este documento |
+| M4b | Chat conversacional por WhatsApp (texto) + comandos rápidos + `debug_logs` | ✅ |
+| **M7** | API que faltaba: `/auth/*`, `/api/user/profile`, `/api/summary`, `/api/invoices`, `/api/public/*` | ✅ Este documento |
 
 ## Estructura
 
@@ -26,6 +27,14 @@ supabase/
 │   ├── whatsapp-webhook/index.ts   # GET + POST: documentos (M4) + texto/chat (M4b)
 │   ├── sendgrid-webhook/index.ts   # POST completo (Fase M5)
 │   ├── api-chat/index.ts           # POST autenticado, JWT Bearer (Fase M5.5)
+│   ├── auth-register/index.ts      # POST /auth/register (Fase M7)
+│   ├── auth-login/index.ts         # POST /auth/login (Fase M7)
+│   ├── auth-refresh/index.ts       # POST /auth/refresh (Fase M7)
+│   ├── api-user-profile/index.ts   # GET /api/user/profile (Fase M7)
+│   ├── api-summary/index.ts        # GET /api/summary (Fase M7)
+│   ├── api-invoices/index.ts       # GET /api/invoices + POST .../{id}/reclassify (Fase M7)
+│   ├── api-public-summary/index.ts   # GET /api/public/summary?token=... (Fase M7)
+│   ├── api-public-invoices/index.ts  # GET /api/public/invoices?token=... (Fase M7)
 │   └── _shared/
 │       ├── cors.ts                 # headers CORS compartidos
 │       ├── types.ts                # interfaces TS: User, Invoice, ChatMessage
@@ -52,12 +61,19 @@ supabase/
 │       ├── whatsapp_commands.ts    # comandos rápidos de WhatsApp sin IA (Fase M4b, no en Python)
 │       ├── whatsapp_commands.test.ts # 5 tests
 │       ├── debug_log.ts            # logDebug() → facturapp.debug_logs (Fase M4b, no en Python)
+│       ├── passwords.ts            # hashPassword/verifyPassword (bcryptjs) (Fase M7)
+│       ├── passwords.test.ts       # 5 tests, incluye interoperabilidad real con bcrypt de Python
+│       ├── rfc_validation.ts       # validateRfc() — port del field_validator de UserRegister (Fase M7)
+│       ├── rfc_validation.test.ts  # 5 tests
+│       ├── invoices_api.ts         # summaryForUser/listInvoicesForUser/reclassifyInvoiceById — API REST (Fase M7, distinto de chat.ts)
+│       ├── invoices_api.test.ts    # 5 tests
 │       ├── fake_supabase_client.ts # cliente Supabase FALSO solo para tests — no es Postgres real (select/insert/update/order/limit)
 │       └── testdata/               # los mismos 4 XML de seed de Fase 1
 ├── migrations/
 │   ├── 0001_initial_schema.sql     # esquema `facturapp` (users, invoices, chat_messages)
 │   ├── 0002_seed_test_users.sql    # datos migrados de facturapp.db (Fase M6)
-│   └── 0003_debug_logs.sql         # facturapp.debug_logs (Fase M4b)
+│   ├── 0003_debug_logs.sql         # facturapp.debug_logs (Fase M4b)
+│   └── 0004_add_plan_column.sql    # facturapp.users.plan (Fase M7, faltaba desde M1)
 ├── config.toml
 └── deno.json                       # import map (@libs/xml, @std/assert, @supabase/supabase-js) + tasks
 ```
@@ -471,6 +487,95 @@ webhook de WhatsApp). Verificado con `deno check whatsapp-webhook-bundled.ts`
 python3 bundle_webhook.py   # regenerar tras cualquier cambio en los módulos listados
 ```
 
+## API que faltaba: auth + summary/invoices/reclassify + público (Fase M7)
+
+**Contexto:** hasta M5.5, solo se habían portado los webhooks (WhatsApp,
+SendGrid) y `/api/chat`. Al revisar `main.py` completo se encontró que
+faltaba **toda la capa de autenticación** (`/auth/register`, `/auth/login`,
+`/auth/refresh`) y la API CRUD principal (`/api/user/profile`,
+`/api/summary`, `/api/invoices`, `/api/invoices/{id}/reclassify`,
+`/api/public/summary`, `/api/public/invoices`) — sin `/auth/login`, nadie
+podía obtener un access token para usar `/api/chat` en la versión Supabase
+en absoluto. Esta fase cierra ese hueco.
+
+**Nuevos módulos compartidos:**
+
+- **`passwords.ts`** — `hashPassword`/`verifyPassword` con `bcryptjs` (JS
+  puro) en vez del `bcrypt` de Python (bindings nativos en C). **Verificado
+  con interoperabilidad real y bidireccional**: un hash generado por
+  `bcrypt.hashpw()` en Python fue verificado exitosamente por
+  `bcryptjs.compareSync()` en Deno, y un hash generado por `bcryptjs` fue
+  verificado exitosamente por `bcrypt.checkpw()` en Python — mismo formato
+  `$2a$`/`$2b$` estándar en ambos sentidos, no una reimplementación
+  distinta.
+- **`rfc_validation.ts`** — `validateRfc()`, port del `field_validator`
+  de `UserRegister` en `schemas.py` (13 caracteres, formato
+  `AAAA000000XXX`, upper + trim).
+- **`invoices_api.ts`** (nuevo, **deliberadamente separado de `chat.ts`**)
+  — `summaryForUser`, `listInvoicesForUser`, `reclassifyInvoiceById`. Son
+  funciones Python distintas a las que usa el chat, con formas de
+  respuesta distintas:
+  - `_summary_for_user()` (usada por `/api/summary` y
+    `/api/public/summary`) incluye `num_facturas`; `tool_get_summary()` de
+    `chat.py` (ya portado en `chat.ts`, Fase M5.5) **no** lo incluye —
+    confirmado leyendo ambas funciones de Python lado a lado, no son la
+    misma.
+  - `list_invoices()` (REST) devuelve el dict **completo** de cada
+    factura (`Invoice.to_dict()`: 18 campos, incluyendo `hallazgos` y
+    todos los campos fiscales); `tool_list_invoices()` de chat.py resume a
+    6 campos para que quepan en una respuesta conversacional.
+  - El reclasificador REST (`/api/invoices/{id}/reclassify`) identifica la
+    factura por **`id` numérico** (primary key); el tool de chat
+    (`toolReclassifyInvoice`, ya existente) identifica por **`uuid_fiscal`**
+    — son rutas Python distintas con contratos distintos, ambas portadas
+    fielmente cada una a su manera.
+- **`auth.ts` extendido** — `createAccessToken`, `createRefreshToken`,
+  `verifyRefreshToken`, `generateWebToken` (antes solo tenía
+  `verifyAccessToken`/`getCurrentUser`, Fase M5.5).
+
+**Hallazgo adicional corregido en esta fase:** el esquema `facturapp.users`
+(`0001_initial_schema.sql`, Fase M1) no tenía columna `plan` — pero sí
+existe en el `User` de SQLAlchemy original (`models.py`:
+`plan = Column(String(20), default="free")`) y se devuelve en
+`/api/user/profile`. Se agregó vía `0004_add_plan_column.sql`
+(`alter table ... add column if not exists plan text not null default
+'free'`), sin tocar las tres tablas existentes.
+
+**Nuevos endpoints** (8 Edge Functions, todas con `verify_jwt = false` en
+`config.toml` — mismo motivo que `api-chat`: JWT propio, no de Supabase
+Auth, excepto los `api-public-*` que no usan JWT en absoluto):
+
+| Función | Ruta Python original | Nota |
+|---|---|---|
+| `auth-register` | `POST /auth/register` | Valida RFC/email/password, hashea con bcrypt |
+| `auth-login` | `POST /auth/login` | Emite access + refresh token |
+| `auth-refresh` | `POST /auth/refresh` | Requiere refresh token (Bearer), emite nuevo access token |
+| `api-user-profile` | `GET /api/user/profile` | Requiere access token |
+| `api-summary` | `GET /api/summary` | Requiere access token |
+| `api-invoices` | `GET /api/invoices` + `POST /api/invoices/{id}/reclassify` | Una función, rutea por método + sufijo de path |
+| `api-public-summary` | `GET /api/public/summary?token=` | Sin JWT — autenticado por `web_token` |
+| `api-public-invoices` | `GET /api/public/invoices?token=` | Sin JWT — autenticado por `web_token` |
+
+**Divergencia declarada — rate limiting del login:** Python aplica
+`@limiter.limit("5/minute")` (slowapi, contador en memoria del proceso) a
+`/auth/login`. Un límite en memoria **no tiene sentido en Edge
+Functions** — cada invocación puede caer en una instancia distinta sin
+estado compartido; portarlo tal cual habría sido un límite falso, una
+falsa sensación de protección. **No se implementó** — requiere una
+solución real (contador en Postgres, o rate limiting a nivel de gateway
+de Supabase), fuera de alcance de este port. Señalado explícitamente, no
+omitido en silencio.
+
+**Verificado con 24 tests nuevos** (`passwords.test.ts` +5 —incluyendo la
+interoperabilidad bcrypt real—, `rfc_validation.test.ts` +5,
+`invoices_api.test.ts` +5, `users.test.ts` +4, `auth.test.ts` +5).
+
+```bash
+cd supabase
+deno task test    # 119/119 tests
+deno task check   # type-check limpio (11 endpoints)
+```
+
 ## Esquema Postgres (`0001_initial_schema.sql`)
 
 Todo vive en un **esquema dedicado `facturapp`** (no `public`) para convivir
@@ -508,7 +613,7 @@ columna sería 100% redundante (duplica el índice sin ningún beneficio).
 ```bash
 supabase secrets set OPENAI_API_KEY=sk-...
 supabase secrets set OPENAI_MODEL=gpt-4o        # opcional, default gpt-4o
-supabase secrets set SECRET_KEY=...             # mismo valor que en Railway/Python — firma los JWT que api-chat verifica
+supabase secrets set SECRET_KEY=...             # mismo valor que en Railway/Python — firma (auth-login/refresh) y verifica (api-chat, api-user-profile, api-summary, api-invoices) los JWT
 supabase secrets set WHATSAPP_ACCESS_TOKEN=...
 supabase secrets set WHATSAPP_PHONE_NUMBER_ID=...
 supabase secrets set WHATSAPP_VERIFY_TOKEN=...
@@ -570,10 +675,18 @@ curl "https://<tu-project-ref>.supabase.co/functions/v1/whatsapp-webhook?hub.mod
 ## Qué NO se hizo todavía (por diseño)
 
 - ❌ Los webhooks de WhatsApp (M4 + chat conversacional M4b), SendGrid (M5),
-  el endpoint `/api/chat` (M5.5) y la migración de datos (M6) están
-  completos — toda la lógica funcional del sistema Python está portada, más
-  la extensión de chat por WhatsApp (M4b, declarada explícitamente como NO
-  existente en Python).
+  el endpoint `/api/chat` (M5.5), la migración de datos (M6), y toda la
+  API restante (auth + summary/invoices/reclassify + público, M7) están
+  completos — toda la ruta de `main.py` está portada, más la extensión de
+  chat por WhatsApp (M4b, declarada explícitamente como NO existente en
+  Python).
+- ❌ **Rate limiting de `/auth/login` NO se portó** — el `@limiter.limit`
+  de Python es un contador en memoria del proceso, sin sentido en Edge
+  Functions sin estado compartido entre invocaciones. Necesita una
+  solución real antes de producción (ver sección M7).
+- ❌ **`/health`, `/privacy`, `/a/{token}` (páginas HTML/estáticas) no se
+  portaron** — son páginas, no API; fuera del alcance de esta migración
+  (que es de lógica de negocio, no de frontend).
 - ❌ **El chat por WhatsApp (M4b) no se probó contra Meta/OpenAI reales**
   — mismo caveat que M4: cubierto por 23 tests contra el fake client, pero
   no hay smoke test real (requeriría enviar un mensaje real desde un

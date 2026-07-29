@@ -1,0 +1,104 @@
+// Fase M7 — POST /auth/register. Port 1:1 de register() en main.py.
+import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
+import { createClient } from "jsr:@supabase/supabase-js@2";
+import { corsHeaders } from "../_shared/cors.ts";
+import { generateWebToken } from "../_shared/auth.ts";
+import { hashPassword } from "../_shared/passwords.ts";
+import { validateRfc } from "../_shared/rfc_validation.ts";
+
+function getSupabaseClient() {
+  return createClient(
+    Deno.env.get("SUPABASE_URL")!,
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+  );
+}
+
+function jsonResponse(body: unknown, status: number): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+}
+
+interface RegisterPayload {
+  email?: string;
+  nombre?: string;
+  rfc?: string;
+  password?: string;
+}
+
+async function handlePost(req: Request): Promise<Response> {
+  let payload: RegisterPayload;
+  try {
+    payload = await req.json();
+  } catch {
+    return jsonResponse({ detail: "JSON inválido" }, 400);
+  }
+
+  const email = (payload.email ?? "").trim().toLowerCase();
+  const nombre = (payload.nombre ?? "").trim();
+  const password = payload.password ?? "";
+
+  // Validación equivalente a los Field(...)/EmailStr de UserRegister
+  // (schemas.py) -- laxa a propósito para el formato de email (no hay
+  // validador de RFC 5322 completo en el runtime de Deno sin una librería
+  // extra; un regex simple es suficiente para el caso real de uso).
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return jsonResponse({ detail: "Email inválido" }, 422);
+  }
+  if (nombre.length < 1 || nombre.length > 255) {
+    return jsonResponse({ detail: "Nombre debe tener entre 1 y 255 caracteres" }, 422);
+  }
+  if (password.length < 8 || password.length > 128) {
+    return jsonResponse({ detail: "Password debe tener entre 8 y 128 caracteres" }, 422);
+  }
+  const rfc = validateRfc(payload.rfc ?? "");
+  if (!rfc) {
+    return jsonResponse(
+      { detail: "RFC debe tener 13 caracteres alfanuméricos (formato: AAAA000000XXX)" },
+      422,
+    );
+  }
+
+  const supabase = getSupabaseClient();
+
+  const { data: existing, error: selectError } = await supabase
+    .schema("facturapp").from("users")
+    .select("id, email, rfc")
+    .eq("email", email)
+    .maybeSingle();
+  if (selectError) return jsonResponse({ detail: "Error consultando usuario" }, 500);
+  if (existing) {
+    return jsonResponse({ detail: "Ese email ya está registrado" }, 400);
+  }
+  const { data: existingRfc, error: selectRfcError } = await supabase
+    .schema("facturapp").from("users")
+    .select("id")
+    .eq("rfc", rfc)
+    .maybeSingle();
+  if (selectRfcError) return jsonResponse({ detail: "Error consultando usuario" }, 500);
+  if (existingRfc) {
+    return jsonResponse({ detail: "Ese RFC ya está registrado" }, 400);
+  }
+
+  const { data: created, error: insertError } = await supabase
+    .schema("facturapp").from("users")
+    .insert({
+      email, nombre, rfc,
+      hashed_password: hashPassword(password),
+      web_token: generateWebToken(),
+    })
+    .select("id")
+    .single();
+  if (insertError || !created) {
+    return jsonResponse({ detail: "Error registrando usuario" }, 500);
+  }
+
+  return jsonResponse({ user_id: created.id, message: "Registrado exitosamente" }, 201);
+}
+
+serve(async (req: Request) => {
+  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+  if (req.method === "POST") return handlePost(req);
+  return new Response("Método no soportado", { status: 405, headers: corsHeaders });
+});
