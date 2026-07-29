@@ -114,7 +114,13 @@ async function handlePost(req: Request): Promise<Response> {
 }
 
 serve(async (req: Request) => {
-  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
-  if (req.method === "POST") return handlePost(req);
-  return new Response("Método no soportado", { status: 405, headers: corsHeaders });
+  console.log("serve: request recibida, method:", req.method);
+  try {
+    if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+    if (req.method === "POST") return await handlePost(req);
+    return new Response("Método no soportado", { status: 405, headers: corsHeaders });
+  } catch (err) {
+    console.error("Error en serve:", err);
+    return jsonResponse({ detail: `Error: ${String(err)}` }, 500);
+  }
 });
