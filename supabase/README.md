@@ -17,7 +17,8 @@ que esté completa y validada; no reemplaza nada todavía.
 | M5.5 | Endpoint `/api/chat` autenticado (JWT Bearer, OpenAI function calling) | ✅ |
 | M6 | Migrar datos existentes de SQLite a este esquema | ✅ (ver caveat sobre datos de prueba) |
 | M4b | Chat conversacional por WhatsApp (texto) + comandos rápidos + `debug_logs` | ✅ |
-| **M7** | API que faltaba: `/auth/*`, `/api/user/profile`, `/api/summary`, `/api/invoices`, `/api/public/*` | ✅ Este documento |
+| M7 | API que faltaba: `/auth/*`, `/api/user/profile`, `/api/summary`, `/api/invoices`, `/api/public/*` | ✅ |
+| **M8** | Rate limiting de `/auth/login` con estado en Postgres | ✅ Este documento |
 
 ## Estructura
 
@@ -576,6 +577,56 @@ deno task test    # 119/119 tests
 deno task check   # type-check limpio (11 endpoints)
 ```
 
+## Rate limiting de `/auth/login` (Fase M8)
+
+Cierra la última brecha de seguridad conocida: hasta M7, `auth-login`
+aceptaba intentos de contraseña ilimitados desde una URL pública.
+
+**No es un port.** Python usa slowapi
+(`@limiter.limit("5/minute")` con `key_func=get_remote_address`), un
+contador en memoria del proceso. En Edge Functions cada invocación puede
+caer en una instancia distinta, así que ese contador no limita nada —
+portarlo tal cual habría dado una falsa sensación de protección. Se
+conserva el mismo límite efectivo (5 por minuto), pero el estado vive en
+Postgres.
+
+**La cuenta vive en SQL, no en TypeScript.** `facturapp.registrar_intento()`
+(en `0006_rate_limit.sql`) hace el conteo y el registro dentro de la misma
+función porque tienen que ser **atómicos**: con dos queries separadas desde
+la Edge Function, dos peticiones simultáneas leerían el mismo conteo y
+pasarían ambas — exactamente la condición que provoca un atacante.
+
+**Ventana deslizante, no fija.** Cuenta los intentos de los últimos 60
+segundos en vez de reiniciar en marcas de reloj fijas. Una ventana fija
+permite el doble del límite a caballo entre dos ventanas: 5 al final de un
+minuto más 5 al inicio del siguiente.
+
+**Divergencia deliberada respecto a Python: se limita por IP _y_ por email.**
+slowapi solo usa la IP, lo que deja completamente abierto el ataque
+distribuido (muchas IPs contra una misma cuenta), que es el caso realista
+del que uno quiere protegerse. Ser fiel al original aquí habría sido fiel e
+inútil. Las dos claves se registran siempre, incluso cuando una ya bloqueó:
+si al bloquear por IP no se acumulara el intento contra el email, un
+atacante rotando IPs nunca llegaría al límite de la cuenta objetivo.
+
+Dos decisiones más, explícitas:
+
+- **El chequeo corre antes de bcrypt.** Verificar la contraseña es caro a
+  propósito (10 rounds); cortar antes evita que el propio rate limiting se
+  convierta en un vector de agotamiento de CPU.
+- **Un error de base de datos permite el intento** (falla abierto). Convertir
+  una caída de Postgres en un bloqueo total de autenticación para todos los
+  usuarios parecía peor que la alternativa; el login va a fallar igual en la
+  siguiente consulta y el error queda en el log. Es discutible — fallar
+  cerrado es un cambio de una línea en `registrarIntento()`.
+
+**Qué cubren los 11 tests y qué no.** Cubren la extracción de la IP desde
+los headers del proxy, la composición de las claves, y la reacción del
+llamador a cada respuesta posible de la BD. **No** cubren el conteo ni la
+atomicidad: esa lógica es SQL, y reimplementarla en TypeScript solo probaría
+la reimplementación. Eso se verificó contra Postgres real (ver la tabla de
+"Verificado en producción").
+
 ## Esquema Postgres (`0001_initial_schema.sql`)
 
 Todo vive en un **esquema dedicado `facturapp`** (no `public`) para convivir
@@ -766,6 +817,7 @@ servicios reales** (Meta, OpenAI, Postgres), no solo contra tests:
 | `api-user-profile`, `api-summary`, `api-invoices` | HTTP real con JWT propio |
 | `api-invoices/{id}/reclassify` | cambia la categoría, pone `confianza = 1.0`, y el resumen refleja el cambio |
 | Aislamiento entre usuarios | reclasificar una factura ajena → `404`; sin token → `401` |
+| Rate limiting de `/auth/login` (M8) | 5 intentos → `401`; del 6º en adelante → `429` con `Retry-After`; tras 62s la ventana se libera |
 | `api-chat` | respuesta de OpenAI con `tools_used: [explain_deductions]` |
 | `api-public-summary` / `api-public-invoices` | con `web_token` válido → `200`; con token inválido → `404` |
 | Webhook de SendGrid | XML real en base64; decodificado, clasificado y guardado |
@@ -819,11 +871,6 @@ números registrados explícitamente como destinatarios (máximo 5).
 
 ## Qué NO se hizo todavía
 
-- ❌ **Rate limiting de `/auth/login`** — el `@limiter.limit` de Python es
-  un contador en memoria del proceso, sin sentido en Edge Functions sin
-  estado compartido entre invocaciones. Necesita una solución real
-  (contador en Postgres, o el gateway de Supabase) antes de exponer esto
-  a tráfico real.
 - ❌ **`/health`, `/privacy`, `/a/{token}` (páginas HTML)** — son páginas,
   no API; fuera del alcance de esta migración.
 - ⚠️ **El webhook de SendGrid se probó con un payload JSON simulado, no con
