@@ -18,7 +18,8 @@ que esté completa y validada; no reemplaza nada todavía.
 | M6 | Migrar datos existentes de SQLite a este esquema | ✅ (ver caveat sobre datos de prueba) |
 | M4b | Chat conversacional por WhatsApp (texto) + comandos rápidos + `debug_logs` | ✅ |
 | M7 | API que faltaba: `/auth/*`, `/api/user/profile`, `/api/summary`, `/api/invoices`, `/api/public/*` | ✅ |
-| **M8** | Rate limiting de `/auth/login` con estado en Postgres | ✅ Este documento |
+| M8 | Rate limiting de `/auth/login` con estado en Postgres | ✅ |
+| **M9** | El webhook de SendGrid acepta el `multipart/form-data` real | ✅ Este documento |
 
 ## Estructura
 
@@ -856,7 +857,8 @@ servicios reales** (Meta, OpenAI, Postgres), no solo contra tests:
 | Rate limiting de `/auth/login` (M8) | 5 intentos → `401`; del 6º en adelante → `429` con `Retry-After`; tras 62s la ventana se libera |
 | `api-chat` | respuesta de OpenAI con `tools_used: [explain_deductions]` |
 | `api-public-summary` / `api-public-invoices` | con `web_token` válido → `200`; con token inválido → `404` |
-| Webhook de SendGrid | XML real en base64; decodificado, clasificado y guardado |
+| Webhook de SendGrid, JSON | XML real en base64; decodificado, clasificado y guardado |
+| Webhook de SendGrid, `multipart/form-data` (M9) | el formato real de Inbound Parse; resultado **idéntico** al de JSON — mismo UUID, misma categoría, mismos hallazgos. Sin adjuntos → `202 sin_adjuntos` |
 | WhatsApp: comando rápido (`hola`) | mensaje real desde un teléfono; responde sin llamar a OpenAI |
 | WhatsApp: chat conversacional (M4b) | mensaje real; `tools_used: [get_summary]`, leyendo de Postgres |
 | WhatsApp: ingesta de factura | XML real como adjunto; descargado de la Graph API, parseado, validado, clasificado y guardado |
@@ -909,22 +911,24 @@ números registrados explícitamente como destinatarios (máximo 5).
 
 - ❌ **`/health`, `/privacy`, `/a/{token}` (páginas HTML)** — son páginas,
   no API; fuera del alcance de esta migración.
-- ⚠️ **El webhook de SendGrid se probó con un payload JSON simulado, no con
-  un correo real.** El código funciona (decodifica el adjunto, ingesta la
-  factura), pero SendGrid Inbound Parse real envía `multipart/form-data`,
-  no JSON — mismo caveat que la versión Python, que asume un adaptador
-  intermedio. Ese adaptador no existe todavía en ninguna de las dos
-  versiones.
+- ⚠️ **El webhook de SendGrid entiende el formato correcto, pero todavía no
+  ha recibido un correo enviado por SendGrid.** Se verificó construyendo el
+  `multipart/form-data` a mano con la misma estructura que manda Inbound
+  Parse. Falta configurar el dominio y el MX en SendGrid y mandarse un
+  correo real — eso ya es configuración de infraestructura, no código.
+- ❌ **Sin verificación de origen en el webhook de SendGrid** — mismo
+  caveat que la versión Python: no valida que la petición venga realmente
+  de SendGrid. Cualquiera que sepa la URL puede inyectar un correo falso.
+  Con el canal ya funcional, esto pasa de teórico a relevante.
 - ✅ **No hay datos de producción que migrar** — comprobado, no supuesto.
   Ver "Por qué no hubo migración de datos" más abajo.
 - ❌ **Sin respuesta por email en SendGrid** (fuera de alcance de v1, igual
   que en `ingest_email_sendgrid()` — Python tampoco responde por correo).
-- ❌ **Sin verificación de origen en el webhook de SendGrid** — mismo
-  caveat que la versión Python: no valida que la petición venga realmente
-  de SendGrid.
-- ❌ **No se tocó el proyecto Railway/Python.** Sigue siendo el fallback.
-  El corte real (mover el Callback URL de Meta de Railway a Supabase y
-  apagar el Python) no se ha hecho.
+- ⚠️ **El corte de WhatsApp ya ocurrió de hecho, aunque Railway siga
+  encendido.** El Callback URL de Meta apunta a
+  `.../functions/v1/whatsapp-webhook` y la WABA está suscrita a FactuApp,
+  así que todo el tráfico de WhatsApp llega a Supabase y Railway recibe
+  cero. Apagar el proyecto Python es ya un trámite, no una migración.
 - ❌ **No se corrigieron los hallazgos del lado Python** (campo
   `whatsapp_token` vs. `.env` con `WHATSAPP_ACCESS_TOKEN`; falta
   `WHATSAPP_APP_SECRET`) — fuera del alcance de esta migración, pero valen
