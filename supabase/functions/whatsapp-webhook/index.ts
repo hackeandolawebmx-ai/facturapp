@@ -194,12 +194,41 @@ serve(async (req: Request) => {
 
   const url = new URL(req.url);
 
-  if (req.method === "GET") {
-    return handleVerification(url);
-  }
+  try {
+    if (req.method === "GET") {
+      return await handleVerification(url);
+    }
 
-  if (req.method === "POST") {
-    return handleIncoming(req);
+    if (req.method === "POST") {
+      return await handleIncoming(req);
+    }
+  } catch (exc) {
+    // Red de seguridad para excepciones INESPERADAS. Los fallos por mensaje
+    // ya se manejan dentro de handleIncoming; esto atrapa lo que se escape
+    // de ahí (incluido un fallo del propio logDebug dentro de un catch).
+    //
+    // Sin esto, una excepción aquí producía un 500 con cuerpo text/plain del
+    // runtime de Deno: sin rastro en debug_logs, sin detalle en el log, y
+    // rompiendo el contrato de respuesta documentado arriba. Fue justo lo
+    // que ocultó el primer fallo real al conectar Meta.
+    //
+    // Se responde 500 a propósito (y no 200): así Meta reintenta la entrega
+    // —dando una segunda oportunidad al mensaje— y el fallo queda visible en
+    // el dashboard en vez de aparentar éxito. Un mensaje perdido en silencio
+    // es peor que un reintento en una app fiscal.
+    console.error("Excepción no controlada en whatsapp-webhook:", exc);
+    try {
+      await logDebug(getSupabaseClient(), "whatsapp: excepción no controlada", {
+        error: String(exc),
+        stack: exc instanceof Error ? exc.stack : undefined,
+      });
+    } catch (logExc) {
+      console.error("Además falló el registro en debug_logs:", logExc);
+    }
+    return new Response(JSON.stringify({ detail: "Error interno" }), {
+      status: 500,
+      headers: jsonHeaders,
+    });
   }
 
   return new Response("Método no soportado", { status: 405, headers: corsHeaders });

@@ -15,6 +15,11 @@
  * referencia (email_service.py) tampoco lo tiene; hacerlo ahora habría sido
  * inventar comportamiento que no existe en el original.
  */
+// `Buffer` NO es global en el runtime de Supabase Edge Functions, aunque sí
+// lo sea en el Deno local. Sin este import, decodificar un adjunto lanza
+// ReferenceError en producción y los tests locales no lo detectan (mismo
+// caso que en whatsapp.ts).
+import { Buffer } from "node:buffer";
 
 export interface EmailAttachment {
   filename: string;

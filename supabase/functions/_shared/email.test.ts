@@ -3,6 +3,7 @@
  * casos cubiertos por test_email.py en la versión Python (Fase 3a).
  */
 import { assertEquals } from "jsr:@std/assert@1";
+import { Buffer } from "node:buffer";
 import { extractAttachments, extractSenderEmail } from "./email.ts";
 
 const b64 = (s: string) => Buffer.from(s, "utf-8").toString("base64");

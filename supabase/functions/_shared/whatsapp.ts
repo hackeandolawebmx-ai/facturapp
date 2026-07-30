@@ -18,6 +18,10 @@
  * conserva logging razonable en los puntos de decisión reales.
  */
 import { createHmac, timingSafeEqual } from "node:crypto";
+// `Buffer` NO es global en el runtime de Supabase Edge Functions, aunque sí
+// lo sea en el Deno local — por eso los tests pasaban y el deploy fallaba
+// con un ReferenceError sin rastro. Hay que importarlo explícitamente.
+import { Buffer } from "node:buffer";
 
 const GRAPH_API_BASE = "https://graph.facebook.com/v19.0";
 
