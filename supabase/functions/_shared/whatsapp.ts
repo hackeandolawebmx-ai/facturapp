@@ -18,10 +18,6 @@
  * conserva logging razonable en los puntos de decisión reales.
  */
 import { createHmac, timingSafeEqual } from "node:crypto";
-// `Buffer` NO es global en el runtime de Supabase Edge Functions, aunque sí
-// lo sea en el Deno local — por eso los tests pasaban y el deploy fallaba
-// con un ReferenceError sin rastro. Hay que importarlo explícitamente.
-import { Buffer } from "node:buffer";
 
 const GRAPH_API_BASE = "https://graph.facebook.com/v19.0";
 
@@ -48,13 +44,36 @@ export function verifyWhatsappSignature(
   const expectedHex = createHmac("sha256", appSecret).update(body).digest("hex");
   const providedHex = signatureHeader.slice("sha256=".length);
 
-  // Comparación en tiempo constante — timingSafeEqual exige buffers del
-  // mismo tamaño; si no coinciden en longitud, ya sabemos que es inválida
+  // Comparación en tiempo constante — timingSafeEqual exige vistas del mismo
+  // tamaño; si no coinciden en longitud, ya sabemos que es inválida
   // (comparar tamaños es seguro, no depende del contenido del secreto).
-  const expected = Buffer.from(expectedHex, "hex");
-  const provided = Buffer.from(providedHex, "hex");
-  if (expected.length !== provided.length) return false;
+  const expected = hexToBytes(expectedHex);
+  const provided = hexToBytes(providedHex);
+  if (expected.length === 0 || expected.length !== provided.length) return false;
   return timingSafeEqual(expected, provided);
+}
+
+/** Decodifica hex a bytes usando solo APIs estándar.
+ *
+ * Antes esto usaba `Buffer.from(hex, "hex")`, que parecía funcionar porque
+ * el Deno local expone `Buffer` como global — pero NO existe en el runtime
+ * de Supabase Edge Functions, y ahí lanzaba ReferenceError. Importarlo de
+ * `node:buffer` tampoco sirvió: ese import falla al cargar el módulo, lo
+ * que tumba la función completa (incluido el handshake GET) antes de que
+ * corra una sola línea nuestra.
+ *
+ * Devuelve un arreglo vacío si el hex es inválido — el caller lo trata como
+ * firma no válida, que es la respuesta correcta para una entrada malformada.
+ */
+function hexToBytes(hex: string): Uint8Array {
+  if (hex.length === 0 || hex.length % 2 !== 0) return new Uint8Array(0);
+  const bytes = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < bytes.length; i++) {
+    const byte = Number.parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+    if (Number.isNaN(byte)) return new Uint8Array(0);
+    bytes[i] = byte;
+  }
+  return bytes;
 }
 
 // ---------------------------------------------------------------------

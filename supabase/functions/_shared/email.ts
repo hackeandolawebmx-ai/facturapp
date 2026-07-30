@@ -15,11 +15,22 @@
  * referencia (email_service.py) tampoco lo tiene; hacerlo ahora habría sido
  * inventar comportamiento que no existe en el original.
  */
-// `Buffer` NO es global en el runtime de Supabase Edge Functions, aunque sí
-// lo sea en el Deno local. Sin este import, decodificar un adjunto lanza
-// ReferenceError en producción y los tests locales no lo detectan (mismo
-// caso que en whatsapp.ts).
-import { Buffer } from "node:buffer";
+
+/** Decodifica base64 a bytes con `atob`, que es estándar web.
+ *
+ * Antes esto usaba `Buffer.from(content, "base64")`. `Buffer` no existe en
+ * el runtime de Supabase Edge Functions (sí en el Deno local, por eso los
+ * tests no lo detectaban), e importarlo de `node:buffer` rompe la carga del
+ * módulo. Ver la nota equivalente en whatsapp.ts: hexToBytes.
+ */
+function base64ToBytes(base64: string): Uint8Array {
+  const binario = atob(base64);
+  const bytes = new Uint8Array(binario.length);
+  for (let i = 0; i < binario.length; i++) {
+    bytes[i] = binario.charCodeAt(i);
+  }
+  return bytes;
+}
 
 export interface EmailAttachment {
   filename: string;
@@ -63,7 +74,7 @@ export function extractAttachments(
 
     let content: Uint8Array;
     try {
-      content = new Uint8Array(Buffer.from(att.content, "base64"));
+      content = base64ToBytes(att.content);
     } catch {
       continue;
     }

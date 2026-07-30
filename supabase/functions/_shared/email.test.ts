@@ -3,10 +3,12 @@
  * casos cubiertos por test_email.py en la versión Python (Fase 3a).
  */
 import { assertEquals } from "jsr:@std/assert@1";
-import { Buffer } from "node:buffer";
 import { extractAttachments, extractSenderEmail } from "./email.ts";
 
-const b64 = (s: string) => Buffer.from(s, "utf-8").toString("base64");
+// `btoa` en vez de Buffer: el runtime de Edge Functions no tiene Buffer, y
+// el test debe usar las mismas APIs que el código de producción.
+const b64 = (s: string) =>
+  btoa(String.fromCharCode(...new TextEncoder().encode(s)));
 
 // ---- extractSenderEmail -----------------------------------------------------
 
