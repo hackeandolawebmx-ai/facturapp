@@ -18,12 +18,30 @@ export class FakeSupabaseClient {
   tables: Record<string, Row[]> = { users: [], invoices: [], chat_messages: [], debug_logs: [] };
   private nextId: Record<string, number> = { users: 1, invoices: 1 };
 
+  /** Respuestas simuladas de `rpc()`, por nombre de función (Fase M8).
+   *
+   * Se simulan en vez de reimplementar la lógica SQL: `registrar_intento`
+   * vive en Postgres (0006_rate_limit.sql) justo porque necesita atomicidad,
+   * y una reimplementación en TypeScript no probaría eso — solo probaría la
+   * reimplementación. Lo que sí se puede probar aquí es que el llamador
+   * reaccione bien a cada respuesta posible. */
+  rpcHandlers: Record<string, (args: Row) => { data: unknown; error: unknown }> = {};
+  rpcLlamadas: Array<{ nombre: string; args: Row }> = [];
+
   schema(_name: string) {
     return this;
   }
 
   from(table: string) {
     return new FakeQueryBuilder(this, table);
+  }
+
+  // deno-lint-ignore require-await
+  async rpc(nombre: string, args: Row) {
+    this.rpcLlamadas.push({ nombre, args });
+    const handler = this.rpcHandlers[nombre];
+    if (!handler) return { data: null, error: { message: `rpc no simulada: ${nombre}` } };
+    return handler(args);
   }
 }
 
