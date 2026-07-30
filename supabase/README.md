@@ -577,6 +577,42 @@ deno task test    # 119/119 tests
 deno task check   # type-check limpio (11 endpoints)
 ```
 
+## Por qué no hubo migración de datos
+
+La Fase M6 migró lo que había en el `facturapp.db` local: 2 usuarios de
+prueba `@example.com`, 0 facturas, 0 mensajes. Quedó pendiente la duda de
+si la producción real en Railway tenía datos acumulados aparte. **La
+respuesta es que no, y se verificó en vez de suponerse.**
+
+Lo que se comprobó consultando Railway directamente (posible porque ambos
+sistemas comparten `SECRET_KEY`, así que se pueden firmar tokens válidos):
+
+| Hecho | Cómo se verificó |
+|---|---|
+| La app está viva y expone los webhooks | `/health` responde 200; el handshake GET de WhatsApp devuelve el challenge |
+| Su base de datos está vacía | un usuario de sondeo recibió `id = 1` — el autoincrement arrancó de cero |
+| No hay volumen montado | Railway no ofrece esa opción en ese servicio |
+| La WABA nunca apuntó a esta app | estaba suscrita a `WA DevX Webhook Events 1P App`, la app de pruebas de Meta |
+
+El último renglón explica los demás. Como la cuenta de WhatsApp entregaba
+los eventos a la app placeholder de Meta y no a FactuApp, **los mensajes
+nunca llegaron a Railway**. No se perdieron facturas: nunca entró ninguna.
+El canal principal del producto no funcionó en producción hasta que se
+corrigió esa suscripción (ver "Configuración de Meta que no es evidente").
+
+De fondo queda un problema que la versión Supabase ya no tiene:
+`DATABASE_URL=sqlite:///./facturapp.db` es una ruta relativa dentro del
+contenedor, y sin un volumen montado ahí vive en el sistema de archivos
+efímero. Aunque los mensajes hubieran llegado, cada deploy habría borrado
+todo sin dejar error en ningún lado. Postgres es persistente por diseño, así
+que el corte resuelve eso por construcción.
+
+**Nota metodológica:** antes de concluir "no hay datos" se validó el método
+de sondeo, porque un `401` puede significar tanto "el usuario no existe"
+como "el token está mal construido". Se registró un usuario y se comprobó
+que sí era legible con un token firmado igual — solo entonces los `401`
+previos pasaron a ser evidencia de ausencia.
+
 ## Rate limiting de `/auth/login` (Fase M8)
 
 Cierra la última brecha de seguridad conocida: hasta M7, `auth-login`
@@ -879,10 +915,8 @@ números registrados explícitamente como destinatarios (máximo 5).
   no JSON — mismo caveat que la versión Python, que asume un adaptador
   intermedio. Ese adaptador no existe todavía en ninguna de las dos
   versiones.
-- ❌ **La migración de datos (M6) solo cubrió los datos de prueba de
-  `facturapp.db` local** (2 usuarios `@example.com`, 0 facturas). Si la
-  producción real vive en otro SQLite (volumen de Railway), esa migración
-  todavía no se hizo.
+- ✅ **No hay datos de producción que migrar** — comprobado, no supuesto.
+  Ver "Por qué no hubo migración de datos" más abajo.
 - ❌ **Sin respuesta por email en SendGrid** (fuera de alcance de v1, igual
   que en `ingest_email_sendgrid()` — Python tampoco responde por correo).
 - ❌ **Sin verificación de origen en el webhook de SendGrid** — mismo
