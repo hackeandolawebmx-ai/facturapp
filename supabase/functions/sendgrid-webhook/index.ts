@@ -10,14 +10,20 @@
 // POST directo simulando ser SendGrid. Para producción, agregar
 // verificación de IP de SendGrid o un secreto compartido en la URL.
 //
-// ⚠️ Asume el mismo adaptador JSON que la versión Python — SendGrid Inbound
-// Parse real envía multipart/form-data; no se construyó un parser de eso
-// aquí porque el sistema de referencia tampoco lo tiene (ver README).
+// Fase M9 — acepta el multipart/form-data real de SendGrid Inbound Parse,
+// además del JSON que asumía M5. Hasta M9 solo entendía JSON, igual que
+// email_service.py, lo que dejaba el canal de correo sin funcionar de punta
+// a punta en NINGUNA de las dos versiones. Es una divergencia deliberada
+// respecto a Python: un webhook que no puede recibir lo que su proveedor
+// envía no está terminado, solo declarado.
 
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { corsHeaders, jsonHeaders } from "../_shared/cors.ts";
-import { extractAttachments, extractSenderEmail, type EmailWebhookPayload } from "../_shared/email.ts";
+import {
+  type CorreoRecibido, extractAttachments, extractSenderEmail,
+  type EmailWebhookPayload, parseSendgridFormData,
+} from "../_shared/email.ts";
 import { getOrCreateUserByEmail } from "../_shared/users.ts";
 import { ingestInvoice } from "../_shared/invoices.ts";
 
@@ -28,19 +34,48 @@ function getSupabaseClient() {
   );
 }
 
+/** Lee el correo entrante, venga como multipart real de SendGrid o como el
+ * JSON que asumía M5.
+ *
+ * Se distingue por Content-Type y no por intentar parsear y ver qué pasa:
+ * el cuerpo de una petición solo se puede consumir una vez, así que un
+ * intento fallido dejaría el stream inutilizable para el segundo. */
+async function leerCorreo(req: Request): Promise<CorreoRecibido | null> {
+  const contentType = req.headers.get("content-type") ?? "";
+
+  if (contentType.includes("multipart/form-data")) {
+    return await parseSendgridFormData(await req.formData());
+  }
+
+  const payload = await req.json() as EmailWebhookPayload;
+  return {
+    from: payload.from ?? "",
+    to: payload.to ?? "",
+    subject: payload.subject ?? "",
+    adjuntos: extractAttachments(payload),
+  };
+}
+
 async function handlePost(req: Request): Promise<Response> {
-  let payload: EmailWebhookPayload;
+  let correo: CorreoRecibido | null;
   try {
-    payload = await req.json();
-  } catch {
-    return new Response(JSON.stringify({ detail: "JSON inválido" }), {
+    correo = await leerCorreo(req);
+  } catch (exc) {
+    console.error("No se pudo leer el correo entrante:", exc);
+    return new Response(JSON.stringify({ detail: "Cuerpo inválido" }), {
+      status: 400,
+      headers: jsonHeaders,
+    });
+  }
+  if (!correo) {
+    return new Response(JSON.stringify({ detail: "Cuerpo inválido" }), {
       status: 400,
       headers: jsonHeaders,
     });
   }
 
   const supabase = getSupabaseClient();
-  const senderEmail = extractSenderEmail(payload.from);
+  const senderEmail = extractSenderEmail(correo.from);
 
   let user;
   try {
@@ -53,8 +88,7 @@ async function handlePost(req: Request): Promise<Response> {
     });
   }
 
-  const attachments = extractAttachments(payload);
-  const entries = Object.entries(attachments) as Array<["xml" | "pdf", Uint8Array]>;
+  const entries = Object.entries(correo.adjuntos) as Array<["xml" | "pdf", Uint8Array]>;
 
   if (entries.length === 0) {
     return new Response(JSON.stringify({

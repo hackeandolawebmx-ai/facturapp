@@ -8,12 +8,18 @@
  * - Extraer la dirección de un remitente tipo `"Nombre" <correo@dominio>`.
  * - Decodificar y clasificar los adjuntos (XML/PDF) del payload.
  *
- * ⚠️ NOTA (igual que en la versión Python — ver README): SendGrid Inbound
- * Parse real envía `multipart/form-data`, no JSON. Este módulo asume un
- * adaptador/relay que ya normalizó el correo a la forma JSON de abajo — no
- * se construyó un parser de multipart nuevo aquí, porque el sistema de
- * referencia (email_service.py) tampoco lo tiene; hacerlo ahora habría sido
- * inventar comportamiento que no existe en el original.
+ * SendGrid Inbound Parse real envía `multipart/form-data`, no JSON. Hasta
+ * M5 este módulo asumía un adaptador externo que normalizara el correo a la
+ * forma JSON de abajo — igual que `email_service.py`, que tampoco lo tiene.
+ * El resultado era que el canal de correo no funcionaba de punta a punta en
+ * NINGUNA de las dos versiones.
+ *
+ * La Fase M9 cierra ese hueco: `parseSendgridFormData()` lee el
+ * multipart real. Es una divergencia deliberada respecto a Python —
+ * funcionalidad que el original no tiene— porque un webhook que no puede
+ * recibir lo que su proveedor envía no está terminado, solo declarado.
+ * La forma JSON se conserva y se sigue aceptando: es la que usan los tests
+ * y cualquier relay existente.
  */
 
 /** Decodifica base64 a bytes con `atob`, que es estándar web.
@@ -86,4 +92,61 @@ export function extractAttachments(
     }
   }
   return result;
+}
+
+/** Clasifica un nombre de archivo por extensión. `null` si no interesa. */
+function tipoDeAdjunto(filename: string): "xml" | "pdf" | null {
+  const name = filename.toLowerCase();
+  if (name.endsWith(".xml")) return "xml";
+  if (name.endsWith(".pdf")) return "pdf";
+  return null;
+}
+
+export interface CorreoRecibido {
+  from: string;
+  to: string;
+  subject: string;
+  adjuntos: Partial<Record<"xml" | "pdf", Uint8Array>>;
+}
+
+/**
+ * Convierte el `multipart/form-data` real de SendGrid Inbound Parse a la
+ * forma que consume el webhook (Fase M9).
+ *
+ * SendGrid manda los campos del correo (`from`, `to`, `subject`) como
+ * campos de texto, y cada adjunto como una parte binaria nombrada
+ * `attachment1`, `attachment2`, etc.
+ *
+ * Los adjuntos salen directo como bytes, sin pasar por base64: en multipart
+ * ya llegan binarios, y codificarlos solo para volver a decodificarlos sería
+ * trabajo de más. Por eso devuelve el mismo shape que `extractAttachments()`
+ * y no un `EmailWebhookPayload`.
+ *
+ * Se recorre TODA la FormData en vez de buscar `attachment1..N` por número:
+ * el campo `attachments` que trae la cuenta puede faltar o no coincidir, y
+ * confiar en él haría que un adjunto se perdiera en silencio.
+ *
+ * Misma regla que la variante JSON: máximo un adjunto por tipo, se queda con
+ * el ÚLTIMO si llegan varios del mismo.
+ */
+export async function parseSendgridFormData(form: FormData): Promise<CorreoRecibido> {
+  const texto = (clave: string): string => {
+    const valor = form.get(clave);
+    return typeof valor === "string" ? valor : "";
+  };
+
+  const adjuntos: Partial<Record<"xml" | "pdf", Uint8Array>> = {};
+  for (const [, valor] of form.entries()) {
+    if (typeof valor === "string") continue;
+    const tipo = tipoDeAdjunto(valor.name ?? "");
+    if (!tipo) continue;
+    adjuntos[tipo] = new Uint8Array(await valor.arrayBuffer());
+  }
+
+  return {
+    from: texto("from"),
+    to: texto("to"),
+    subject: texto("subject"),
+    adjuntos,
+  };
 }
