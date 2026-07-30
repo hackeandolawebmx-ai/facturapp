@@ -754,56 +754,102 @@ ediciones masivas van por Python con `encoding='utf-8'` explícito**, nunca
 por cmdlets de PowerShell. (Pasó dos veces en este repo antes de quedar
 anotado aquí.)
 
-## Qué NO se hizo todavía (por diseño)
+## Verificado en producción
 
-- ❌ Los webhooks de WhatsApp (M4 + chat conversacional M4b), SendGrid (M5),
-  el endpoint `/api/chat` (M5.5), la migración de datos (M6), y toda la
-  API restante (auth + summary/invoices/reclassify + público, M7) están
-  completos — toda la ruta de `main.py` está portada, más la extensión de
-  chat por WhatsApp (M4b, declarada explícitamente como NO existente en
-  Python).
-- ❌ **Rate limiting de `/auth/login` NO se portó** — el `@limiter.limit`
-  de Python es un contador en memoria del proceso, sin sentido en Edge
-  Functions sin estado compartido entre invocaciones. Necesita una
-  solución real antes de producción (ver sección M7).
-- ❌ **`/health`, `/privacy`, `/a/{token}` (páginas HTML/estáticas) no se
-  portaron** — son páginas, no API; fuera del alcance de esta migración
-  (que es de lógica de negocio, no de frontend).
-- ❌ **El chat por WhatsApp (M4b) no se probó contra Meta/OpenAI reales**
-  — mismo caveat que M4: cubierto por 23 tests contra el fake client, pero
-  no hay smoke test real (requeriría enviar un mensaje real desde un
-  teléfono, autorización explícita tuya).
-- ❌ **La migración de datos (M6) solo cubrió los datos de prueba presentes
-  en `facturapp.db` local** (2 usuarios `@example.com`, 0 facturas, 0
-  chats). Si la producción real vive en un SQLite distinto (volumen de
-  Railway), esa migración real todavía no se hizo.
-- ❌ **`0002_seed_test_users.sql` no se aplicó** — está generado para que tú
-  lo revises y corras en el SQL Editor de Supabase (o vía `supabase db
-  push`).
-- ❌ **Sin respuesta por email en SendGrid** (explícitamente fuera de
-  alcance de v1, igual que en `ingest_email_sendgrid()` — Python tampoco
-  responde por correo hoy).
+Desplegado en el proyecto `smocemszqzsypuachevr` y **ejercitado contra los
+servicios reales** (Meta, OpenAI, Postgres), no solo contra tests:
+
+| Flujo | Cómo se verificó |
+|---|---|
+| `auth-register` → `auth-login` → `auth-refresh` | HTTP real; devuelve access + refresh token |
+| `api-user-profile`, `api-summary`, `api-invoices` | HTTP real con JWT propio |
+| `api-chat` | respuesta de OpenAI con `tools_used: [explain_deductions]` |
+| WhatsApp: comando rápido (`hola`) | mensaje real desde un teléfono; responde sin llamar a OpenAI |
+| WhatsApp: chat conversacional (M4b) | mensaje real; `tools_used: [get_summary]`, leyendo de Postgres |
+| WhatsApp: ingesta de factura | XML real enviado como adjunto; descargado de la Graph API, parseado, validado, clasificado como Médicos y guardado |
+
+Ese último renglón es el que cierra el producto: ejercita
+`downloadMediaFromMeta` (las dos llamadas a la Graph API) que ningún test
+puede cubrir, porque requiere un `media_id` que solo Meta genera.
+
+### Configuración de Meta que no es evidente
+
+Para que Meta entregue los mensajes hacen falta **tres** cosas en lugares
+distintos, y las dos primeras se ven completas en la consola aunque la
+tercera falte:
+
+1. Callback URL + verify token → en la app
+2. Campo `messages` suscrito → en la app
+3. **La app suscrita a la WABA** → en la cuenta de WhatsApp
+
+La tercera es la que decide realmente el enrutamiento y solo se ve por la
+Graph API. En este proyecto estaba apuntando a `WA DevX Webhook Events 1P
+App` (la app interna de pruebas de Meta), así que los mensajes nunca
+llegaban al webhook pese a que todo lo demás estaba bien:
+
+```bash
+# Ver a qué apps entrega la WABA
+curl "https://graph.facebook.com/v21.0/<WABA_ID>/subscribed_apps?access_token=<TOKEN>"
+
+# Suscribir la app dueña del token
+curl -X POST "https://graph.facebook.com/v21.0/<WABA_ID>/subscribed_apps?access_token=<TOKEN>"
+```
+
+El `WHATSAPP_ACCESS_TOKEN` debe ser de un **System User** con caducidad
+*Nunca* (Business Settings → Usuarios del sistema), con la app y la WABA
+asignadas como activos. El token temporal de 24h que ofrece la consola de
+desarrollo no sirve para nada persistente.
+
+Con el número de prueba de Meta, además, solo se puede conversar con los
+números registrados explícitamente como destinatarios (máximo 5).
+
+## Qué NO se hizo todavía
+
+- ❌ **Rate limiting de `/auth/login`** — el `@limiter.limit` de Python es
+  un contador en memoria del proceso, sin sentido en Edge Functions sin
+  estado compartido entre invocaciones. Necesita una solución real
+  (contador en Postgres, o el gateway de Supabase) antes de exponer esto
+  a tráfico real.
+- ❌ **`/health`, `/privacy`, `/a/{token}` (páginas HTML)** — son páginas,
+  no API; fuera del alcance de esta migración.
+- ❌ **El webhook de SendGrid no se ha probado en producción.** El código
+  está desplegado y se le corrigió el mismo bug de `Buffer` que tumbaba
+  WhatsApp (ver `email.ts: base64ToBytes`), pero nunca ha recibido un
+  correo real.
+- ❌ **`api-public-summary` / `api-public-invoices` no se han probado en
+  producción** — requieren el `web_token` de un usuario real en la URL.
+- ❌ **`api-invoices/{id}/reclassify` no se ha probado en producción.**
+- ❌ **El guard de email duplicado en `auth-register` no está verificado
+  contra el servicio real** — la BD quedó sin duplicados, pero eso también
+  lo garantiza el `UNIQUE` de Postgres, así que no prueba nuestro chequeo.
+- ❌ **La migración de datos (M6) solo cubrió los datos de prueba de
+  `facturapp.db` local** (2 usuarios `@example.com`, 0 facturas). Si la
+  producción real vive en otro SQLite (volumen de Railway), esa migración
+  todavía no se hizo.
+- ❌ **Sin respuesta por email en SendGrid** (fuera de alcance de v1, igual
+  que en `ingest_email_sendgrid()` — Python tampoco responde por correo).
 - ❌ **Sin verificación de origen en el webhook de SendGrid** — mismo
-  caveat que la versión Python: no valida que la petición venga
-  realmente de SendGrid.
-- ❌ No se migraron datos existentes (Fase M6).
-- ❌ No se tocó el proyecto Railway/Python — sigue siendo el fallback hasta
-  confirmar en vivo que la versión Supabase funciona igual o mejor. No se
-  cambió el Callback URL en Meta todavía.
-- ❌ **No se desplegó nada a Supabase.** Sin `supabase login` (OAuth
-  interactivo) no hay forma de hacer `supabase functions deploy` ni
-  `supabase db push` desde aquí — el deploy y el smoke test real con un
-  mensaje de WhatsApp real quedan para que tú los corras (ver comandos en
-  "Aplicar la migración" arriba).
-- ❌ **No se envió ningún mensaje de WhatsApp real.** `sendWhatsappMessage`
-  está implementado y cubierto por tests contra un cliente simulado, pero
-  no se probó contra la API real — a diferencia de la descarga (una
-  lectura sin efectos secundarios), enviar notificaría a un número real.
-  Eso requiere que tú lo autorices explícitamente con un número de
-  destino.
+  caveat que la versión Python: no valida que la petición venga realmente
+  de SendGrid.
+- ❌ **No se tocó el proyecto Railway/Python.** Sigue siendo el fallback.
+  El corte real (mover el Callback URL de Meta de Railway a Supabase y
+  apagar el Python) no se ha hecho.
 - ❌ **No se corrigieron los hallazgos del lado Python** (campo
   `whatsapp_token` vs. `.env` con `WHATSAPP_ACCESS_TOKEN`; falta
-  `WHATSAPP_APP_SECRET`; token de WhatsApp expirado) — están fuera del
-  alcance de esta migración ("no tocar Railway/Python"), pero valen la
-  pena revisarlos independientemente si el webhook de WhatsApp en Railway
-  no está respondiendo como se espera.
+  `WHATSAPP_APP_SECRET`) — fuera del alcance de esta migración, pero valen
+  la pena si el webhook en Railway no responde como se espera.
+
+### Límite conocido de la suite de tests
+
+Los 119 tests corren sobre **Deno local**, y el runtime de Supabase Edge
+Functions no es idéntico. `Buffer` existe como global en el primero pero no
+en el segundo, y eso dejó pasar un `ReferenceError` a producción con los
+tests en verde — en `whatsapp.ts` (firma HMAC) y en `email.ts` (adjuntos de
+SendGrid) a la vez.
+
+De ahí el criterio para `_shared/`: **usar estándares web** (`atob`,
+`TextEncoder`, `crypto.subtle`) en vez de APIs de Node. Si algo realmente
+necesita `node:`, hay que probarlo contra el entorno desplegado antes de
+darlo por bueno — y ojo, importar explícitamente de `node:buffer` **no**
+funciona: el import falla al cargar el módulo y tumba la función entera,
+incluido el handshake GET.
