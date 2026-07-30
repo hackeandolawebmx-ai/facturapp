@@ -53,6 +53,71 @@ export interface EmailWebhookPayload {
 const EMAIL_IN_BRACKETS_RE = /<([^<>]+)>/;
 const BASE64_RE = /^[A-Za-z0-9+/\s]*={0,2}$/;
 
+/** Compara dos cadenas en tiempo constante.
+ *
+ * Una comparación normal (`===`) sale en el primer byte distinto, lo que
+ * filtra por temporización cuántos caracteres del secreto se acertaron y
+ * permite descubrirlo carácter por carácter. Se implementa a mano en vez de
+ * usar `timingSafeEqual` de `node:crypto` para no depender de la capa de
+ * compatibilidad con Node — mismo criterio adoptado tras el incidente de
+ * `Buffer` (ver la nota en whatsapp.ts).
+ */
+function igualEnTiempoConstante(a: string, b: string): boolean {
+  const bytesA = new TextEncoder().encode(a);
+  const bytesB = new TextEncoder().encode(b);
+  if (bytesA.length !== bytesB.length) return false;
+  let diferencia = 0;
+  for (let i = 0; i < bytesA.length; i++) diferencia |= bytesA[i] ^ bytesB[i];
+  return diferencia === 0;
+}
+
+/**
+ * Verifica que la petición venga de SendGrid, mediante un secreto compartido
+ * (Fase M10).
+ *
+ * IMPORTANTE: SendGrid Inbound Parse **no firma sus peticiones**. A
+ * diferencia de Meta (HMAC en `X-Hub-Signature-256`), aquí no hay nada
+ * criptográfico que verificar contra el cuerpo. El Event Webhook de SendGrid
+ * sí tiene firma ECDSA, pero Inbound Parse no — así que un secreto
+ * compartido configurado en la URL de destino es la única opción real.
+ *
+ * Se aceptan dos formas, y el orden importa:
+ *
+ * 1. **Basic auth** (`https://facturapp:<secreto>@host/...` en la config de
+ *    Inbound Parse). Preferida: las credenciales viajan en el header
+ *    `Authorization`, fuera de la URL.
+ * 2. **Query param** (`?secret=<secreto>`). Funciona, pero Supabase registra
+ *    la URL completa en los logs de invocación, así que el secreto queda
+ *    escrito en ellos. Se admite por compatibilidad con relays que no puedan
+ *    mandar headers; no es la opción recomendada.
+ *
+ * Limitación honesta: esto autentica el ORIGEN, no el contenido. Quien tenga
+ * el secreto puede mandar el correo que quiera. Es estrictamente mejor que
+ * no tener nada —que es donde estaba— pero no equivale a la firma HMAC de
+ * WhatsApp, que además garantiza que el cuerpo no fue alterado.
+ */
+export function verificarOrigenSendgrid(
+  req: Request,
+  secretoEsperado: string,
+): boolean {
+  const auth = req.headers.get("authorization") ?? "";
+  if (auth.startsWith("Basic ")) {
+    try {
+      const decodificado = atob(auth.slice("Basic ".length));
+      // Formato "usuario:contraseña" — el usuario da igual, solo importa el
+      // secreto. Se parte en el PRIMER ":" por si el secreto contiene otros.
+      const separador = decodificado.indexOf(":");
+      const secreto = separador === -1 ? decodificado : decodificado.slice(separador + 1);
+      if (igualEnTiempoConstante(secreto, secretoEsperado)) return true;
+    } catch {
+      // Basic mal formado: se ignora y se intenta con el query param.
+    }
+  }
+
+  const enQuery = new URL(req.url).searchParams.get("secret");
+  return enQuery !== null && igualEnTiempoConstante(enQuery, secretoEsperado);
+}
+
 /** Extrae la dirección de un remitente tipo `"Nombre" <correo@dominio.com>`.
  * Si no hay `<...>`, asume que `rawFrom` ya es la dirección pura. */
 export function extractSenderEmail(rawFrom: string): string {

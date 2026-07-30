@@ -3,7 +3,10 @@
  * casos cubiertos por test_email.py en la versión Python (Fase 3a).
  */
 import { assertEquals } from "jsr:@std/assert@1";
-import { extractAttachments, extractSenderEmail, parseSendgridFormData } from "./email.ts";
+import {
+  extractAttachments, extractSenderEmail, parseSendgridFormData,
+  verificarOrigenSendgrid,
+} from "./email.ts";
 
 // `btoa` en vez de Buffer: el runtime de Edge Functions no tiene Buffer, y
 // el test debe usar las mismas APIs que el código de producción.
@@ -174,4 +177,78 @@ Deno.test("parseSendgridFormData: campos ausentes son cadena vacía, nunca undef
   const correo = await parseSendgridFormData(formDataDeSendgrid({ from: "a@b.com" }));
   assertEquals(correo.to, "");
   assertEquals(correo.subject, "");
+});
+
+// ---- verificarOrigenSendgrid (Fase M10) -------------------------------------
+//
+// SendGrid Inbound Parse NO firma sus peticiones (a diferencia de Meta), así
+// que lo único disponible es un secreto compartido en la URL de destino.
+
+const SECRETO = "s3cr3t0-compartido-de-prueba";
+const URL_BASE = "https://proyecto.supabase.co/functions/v1/sendgrid-webhook";
+
+function peticion(opciones: { basic?: string; query?: string } = {}): Request {
+  const url = opciones.query === undefined
+    ? URL_BASE
+    : `${URL_BASE}?secret=${encodeURIComponent(opciones.query)}`;
+  const headers = new Headers();
+  if (opciones.basic !== undefined) {
+    headers.set("Authorization", `Basic ${btoa(opciones.basic)}`);
+  }
+  return new Request(url, { method: "POST", headers });
+}
+
+Deno.test("verificarOrigenSendgrid: acepta Basic auth con el secreto correcto", () => {
+  assertEquals(verificarOrigenSendgrid(peticion({ basic: `facturapp:${SECRETO}` }), SECRETO), true);
+});
+
+Deno.test("verificarOrigenSendgrid: el usuario del Basic auth es irrelevante", () => {
+  // Solo importa el secreto; Inbound Parse exige un usuario en la URL pero
+  // no aporta nada a la verificación.
+  assertEquals(verificarOrigenSendgrid(peticion({ basic: `cualquiera:${SECRETO}` }), SECRETO), true);
+});
+
+Deno.test("verificarOrigenSendgrid: acepta un secreto que contiene ':'", () => {
+  // Se parte en el PRIMER ':' — si se partiera en el último, o se usara
+  // split(':'), un secreto con dos puntos se truncaría y fallaría siempre.
+  const conDosPuntos = "abc:def:ghi";
+  assertEquals(
+    verificarOrigenSendgrid(peticion({ basic: `user:${conDosPuntos}` }), conDosPuntos),
+    true,
+  );
+});
+
+Deno.test("verificarOrigenSendgrid: rechaza Basic auth con secreto incorrecto", () => {
+  assertEquals(verificarOrigenSendgrid(peticion({ basic: "user:otro-secreto" }), SECRETO), false);
+});
+
+Deno.test("verificarOrigenSendgrid: acepta el secreto por query param", () => {
+  assertEquals(verificarOrigenSendgrid(peticion({ query: SECRETO }), SECRETO), true);
+});
+
+Deno.test("verificarOrigenSendgrid: rechaza query param incorrecto", () => {
+  assertEquals(verificarOrigenSendgrid(peticion({ query: "equivocado" }), SECRETO), false);
+});
+
+Deno.test("verificarOrigenSendgrid: sin credenciales de ningún tipo rechaza", () => {
+  assertEquals(verificarOrigenSendgrid(peticion(), SECRETO), false);
+});
+
+Deno.test("verificarOrigenSendgrid: un Basic mal formado cae al query param", () => {
+  // El Basic no decodifica, pero el query trae el secreto correcto: debe
+  // aceptarse. Un `return false` temprano al fallar el Basic rompería esto.
+  const req = new Request(`${URL_BASE}?secret=${encodeURIComponent(SECRETO)}`, {
+    method: "POST",
+    headers: { Authorization: "Basic !!!no-es-base64!!!" },
+  });
+  assertEquals(verificarOrigenSendgrid(req, SECRETO), true);
+});
+
+Deno.test("verificarOrigenSendgrid: un secreto que es prefijo del real no pasa", () => {
+  // La comparación exige misma longitud antes de comparar contenido.
+  assertEquals(verificarOrigenSendgrid(peticion({ query: SECRETO.slice(0, -1) }), SECRETO), false);
+});
+
+Deno.test("verificarOrigenSendgrid: secreto vacío en la petición no pasa", () => {
+  assertEquals(verificarOrigenSendgrid(peticion({ query: "" }), SECRETO), false);
 });

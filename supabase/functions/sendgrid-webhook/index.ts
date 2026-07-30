@@ -5,24 +5,26 @@
 // hay descarga remota de adjuntos (ya vienen en el payload), y no se
 // responde por email (fuera de alcance de v1, igual que en Python).
 //
-// ⚠️ Sin verificación de firma/origen — mismo caveat que la versión Python:
-// cualquiera que sepa el email de un usuario podría, en teoría, enviar un
-// POST directo simulando ser SendGrid. Para producción, agregar
-// verificación de IP de SendGrid o un secreto compartido en la URL.
-//
 // Fase M9 — acepta el multipart/form-data real de SendGrid Inbound Parse,
 // además del JSON que asumía M5. Hasta M9 solo entendía JSON, igual que
 // email_service.py, lo que dejaba el canal de correo sin funcionar de punta
 // a punta en NINGUNA de las dos versiones. Es una divergencia deliberada
 // respecto a Python: un webhook que no puede recibir lo que su proveedor
 // envía no está terminado, solo declarado.
+//
+// Fase M10 — verificación de origen por secreto compartido. Python no la
+// tiene, y mientras el canal no funcionaba era un caveat teórico; una vez
+// que funciona, cualquiera que supiera la URL podía inyectar una factura
+// falsa en la cuenta de otro usuario (basta con conocer su correo, porque
+// la cuenta se crea sola). Ver verificarOrigenSendgrid() en email.ts para
+// el porqué de un secreto compartido y no una firma.
 
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { corsHeaders, jsonHeaders } from "../_shared/cors.ts";
 import {
   type CorreoRecibido, extractAttachments, extractSenderEmail,
-  type EmailWebhookPayload, parseSendgridFormData,
+  type EmailWebhookPayload, parseSendgridFormData, verificarOrigenSendgrid,
 } from "../_shared/email.ts";
 import { getOrCreateUserByEmail } from "../_shared/users.ts";
 import { ingestInvoice } from "../_shared/invoices.ts";
@@ -57,6 +59,25 @@ async function leerCorreo(req: Request): Promise<CorreoRecibido | null> {
 }
 
 async function handlePost(req: Request): Promise<Response> {
+  // Mismo patrón que whatsapp-webhook con WHATSAPP_APP_SECRET: si el
+  // secreto está configurado se exige; si no, se avisa y se deja pasar, para
+  // no tumbar un despliegue existente en el momento de introducir esto. El
+  // aviso queda en el log justamente para que no se olvide configurarlo.
+  const secreto = Deno.env.get("SENDGRID_WEBHOOK_SECRET");
+  if (secreto) {
+    if (!verificarOrigenSendgrid(req, secreto)) {
+      console.warn("Petición a sendgrid-webhook con secreto inválido o ausente");
+      return new Response(JSON.stringify({ detail: "No autorizado" }), {
+        status: 401,
+        headers: jsonHeaders,
+      });
+    }
+  } else {
+    console.warn(
+      "SENDGRID_WEBHOOK_SECRET no configurado: se omite la verificación de origen",
+    );
+  }
+
   let correo: CorreoRecibido | null;
   try {
     correo = await leerCorreo(req);
