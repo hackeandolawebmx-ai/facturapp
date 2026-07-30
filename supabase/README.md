@@ -762,15 +762,29 @@ servicios reales** (Meta, OpenAI, Postgres), no solo contra tests:
 | Flujo | Cómo se verificó |
 |---|---|
 | `auth-register` → `auth-login` → `auth-refresh` | HTTP real; devuelve access + refresh token |
+| `auth-register` con email repetido | responde `400`, o sea que contesta nuestro chequeo y no solo el `UNIQUE` de Postgres |
 | `api-user-profile`, `api-summary`, `api-invoices` | HTTP real con JWT propio |
+| `api-invoices/{id}/reclassify` | cambia la categoría, pone `confianza = 1.0`, y el resumen refleja el cambio |
+| Aislamiento entre usuarios | reclasificar una factura ajena → `404`; sin token → `401` |
 | `api-chat` | respuesta de OpenAI con `tools_used: [explain_deductions]` |
+| `api-public-summary` / `api-public-invoices` | con `web_token` válido → `200`; con token inválido → `404` |
+| Webhook de SendGrid | XML real en base64; decodificado, clasificado y guardado |
 | WhatsApp: comando rápido (`hola`) | mensaje real desde un teléfono; responde sin llamar a OpenAI |
 | WhatsApp: chat conversacional (M4b) | mensaje real; `tools_used: [get_summary]`, leyendo de Postgres |
-| WhatsApp: ingesta de factura | XML real enviado como adjunto; descargado de la Graph API, parseado, validado, clasificado como Médicos y guardado |
+| WhatsApp: ingesta de factura | XML real como adjunto; descargado de la Graph API, parseado, validado, clasificado y guardado |
+| WhatsApp: reglas del validador | los 4 CFDI de `testdata/` — válido, pago en efectivo, RFC ajeno y duplicado — dan el resultado esperado cada uno |
 
-Ese último renglón es el que cierra el producto: ejercita
-`downloadMediaFromMeta` (las dos llamadas a la Graph API) que ningún test
-puede cubrir, porque requiere un `media_id` que solo Meta genera.
+Dos renglones valen una nota:
+
+**La ingesta por WhatsApp** es la que cierra el producto: ejercita
+`downloadMediaFromMeta` (las dos llamadas a la Graph API), que ningún test
+puede cubrir porque requiere un `media_id` que solo Meta genera.
+
+**La interoperabilidad bcrypt quedó confirmada contra el servicio real**, no
+solo en tests: se generó un hash con el `bcrypt` de Python, se guardó en la
+BD, y `auth-login` lo verificó con `bcryptjs` en Deno. Es la pieza que
+permite que las versiones Python y Supabase compartan la tabla de usuarios
+durante la transición.
 
 ### Configuración de Meta que no es evidente
 
@@ -812,16 +826,12 @@ números registrados explícitamente como destinatarios (máximo 5).
   a tráfico real.
 - ❌ **`/health`, `/privacy`, `/a/{token}` (páginas HTML)** — son páginas,
   no API; fuera del alcance de esta migración.
-- ❌ **El webhook de SendGrid no se ha probado en producción.** El código
-  está desplegado y se le corrigió el mismo bug de `Buffer` que tumbaba
-  WhatsApp (ver `email.ts: base64ToBytes`), pero nunca ha recibido un
-  correo real.
-- ❌ **`api-public-summary` / `api-public-invoices` no se han probado en
-  producción** — requieren el `web_token` de un usuario real en la URL.
-- ❌ **`api-invoices/{id}/reclassify` no se ha probado en producción.**
-- ❌ **El guard de email duplicado en `auth-register` no está verificado
-  contra el servicio real** — la BD quedó sin duplicados, pero eso también
-  lo garantiza el `UNIQUE` de Postgres, así que no prueba nuestro chequeo.
+- ⚠️ **El webhook de SendGrid se probó con un payload JSON simulado, no con
+  un correo real.** El código funciona (decodifica el adjunto, ingesta la
+  factura), pero SendGrid Inbound Parse real envía `multipart/form-data`,
+  no JSON — mismo caveat que la versión Python, que asume un adaptador
+  intermedio. Ese adaptador no existe todavía en ninguna de las dos
+  versiones.
 - ❌ **La migración de datos (M6) solo cubrió los datos de prueba de
   `facturapp.db` local** (2 usuarios `@example.com`, 0 facturas). Si la
   producción real vive en otro SQLite (volumen de Railway), esa migración
