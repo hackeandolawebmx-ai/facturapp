@@ -172,11 +172,55 @@ export class ValidationEngine {
       if (h) hallazgos.push(h);
     }
 
-    let status: Severidad = SEV_VALIDA;
-    for (const h of hallazgos) {
-      if (PRIORIDAD[h.severidad] > PRIORIDAD[status]) status = h.severidad;
-    }
-
-    return { status, categoria, hallazgos };
+    return { status: estatusDeHallazgos(hallazgos), categoria, hallazgos };
   }
+}
+
+/** El estatus es la severidad más alta entre los hallazgos. */
+export function estatusDeHallazgos(hallazgos: Hallazgo[]): Severidad {
+  let status: Severidad = SEV_VALIDA;
+  for (const h of hallazgos) {
+    if (PRIORIDAD[h.severidad] > PRIORIDAD[status]) status = h.severidad;
+  }
+  return status;
+}
+
+/**
+ * Recalcula el hallazgo RFC_AJENO de una factura ya guardada, tras un cambio
+ * del RFC del usuario (Fase M11).
+ *
+ * POR QUÉ HACE FALTA: los hallazgos se evalúan al ingerir y no se recalculan.
+ * Como las cuentas creadas por WhatsApp o correo nacen con un RFC sintético
+ * (`PEND...`), toda su facturación se guarda marcada `RFC_AJENO`. Al capturar
+ * por fin el RFC real, esas advertencias no solo quedaban obsoletas: pasaban
+ * a ser autocontradictorias en pantalla — "Factura emitida a RFC X; no será
+ * deducible" junto a un encabezado que muestra ese mismo X como el RFC del
+ * usuario. Es información falsa sobre deducibilidad, que es precisamente lo
+ * que el producto promete acertar.
+ *
+ * Solo se toca RFC_AJENO. Los demás hallazgos (pago en efectivo, uso de CFDI,
+ * emisor sin especialidad) no dependen del RFC del usuario, así que
+ * recalcularlos aquí sería reinventar el validador con datos incompletos: la
+ * factura guardada no conserva todo lo que necesitan sus reglas.
+ *
+ * Función pura: recibe y devuelve datos, sin tocar la base.
+ */
+export function revalidarRfcAjeno(
+  hallazgos: Hallazgo[],
+  receptorRfc: string,
+  rfcUsuario: string,
+): { hallazgos: Hallazgo[]; estatus: Severidad } {
+  const coincide = (receptorRfc ?? "").toUpperCase() === rfcUsuario.toUpperCase();
+  const otros = hallazgos.filter((h) => h.codigo !== "RFC_AJENO");
+
+  const actualizados: Hallazgo[] = coincide ? otros : [
+    ...otros,
+    {
+      codigo: "RFC_AJENO",
+      severidad: SEV_ADVERTENCIA,
+      mensaje: `Factura emitida a RFC ${receptorRfc ?? ""}; no será deducible`,
+    },
+  ];
+
+  return { hallazgos: actualizados, estatus: estatusDeHallazgos(actualizados) };
 }

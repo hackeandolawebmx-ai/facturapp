@@ -8,7 +8,7 @@ import { assertEquals } from "jsr:@std/assert@1";
 import { FakeSupabaseClient } from "./fake_supabase_client.ts";
 import {
   getOrCreateUserByEmail, getOrCreateUserByPhone, getUserByWebToken, getUserProfile,
-  rfcTomadoPorOtro, updateUserRfc,
+  revalidarFacturasTrasCambioDeRfc, rfcTomadoPorOtro, updateUserRfc,
 } from "./users.ts";
 
 // deno-lint-ignore no-explicit-any
@@ -171,4 +171,56 @@ Deno.test("rfcTomadoPorOtro: un RFC libre devuelve false", async () => {
   conUsuario(supabase, 1, "PEND111111111");
 
   assertEquals(await rfcTomadoPorOtro(supabase, 1, "XAXX010101000"), false);
+});
+
+// ---- revalidarFacturasTrasCambioDeRfc ---------------------------------------
+
+// deno-lint-ignore no-explicit-any
+function conFactura(supabase: any, id: number, userId: number, receptorRfc: string,
+                    estatus: string, hallazgos: unknown[]) {
+  supabase.tables.invoices.push({
+    id, user_id: userId, receptor_rfc: receptorRfc, estatus, hallazgos,
+  });
+}
+
+const HALLAZGO_AJENO = {
+  codigo: "RFC_AJENO", severidad: "advertencia",
+  mensaje: "Factura emitida a RFC AUCD870504PU0; no será deducible",
+};
+
+Deno.test("revalidar: limpia la advertencia de las facturas que ya son del usuario", async () => {
+  const supabase = client();
+  conUsuario(supabase, 1, "AUCD870504PU0");
+  conFactura(supabase, 10, 1, "AUCD870504PU0", "advertencia", [HALLAZGO_AJENO]);
+
+  const cambiadas = await revalidarFacturasTrasCambioDeRfc(supabase, 1, "AUCD870504PU0");
+  assertEquals(cambiadas, 1);
+  assertEquals(supabase.tables.invoices[0].estatus, "valida");
+  assertEquals(supabase.tables.invoices[0].hallazgos.length, 0);
+});
+
+Deno.test("revalidar: no toca facturas realmente emitidas a otro RFC", async () => {
+  const supabase = client();
+  conUsuario(supabase, 1, "AUCD870504PU0");
+  conFactura(supabase, 10, 1, "XAXX010101000", "advertencia", [HALLAZGO_AJENO]);
+
+  const cambiadas = await revalidarFacturasTrasCambioDeRfc(supabase, 1, "AUCD870504PU0");
+  assertEquals(cambiadas, 0);
+  assertEquals(supabase.tables.invoices[0].estatus, "advertencia");
+});
+
+Deno.test("revalidar: no toca las facturas de otros usuarios", async () => {
+  const supabase = client();
+  conUsuario(supabase, 1, "AUCD870504PU0");
+  conFactura(supabase, 10, 2, "AUCD870504PU0", "advertencia", [HALLAZGO_AJENO]);
+
+  const cambiadas = await revalidarFacturasTrasCambioDeRfc(supabase, 1, "AUCD870504PU0");
+  assertEquals(cambiadas, 0);
+  assertEquals(supabase.tables.invoices[0].estatus, "advertencia");
+});
+
+Deno.test("revalidar: sin facturas no falla y devuelve 0", async () => {
+  const supabase = client();
+  conUsuario(supabase, 1, "AUCD870504PU0");
+  assertEquals(await revalidarFacturasTrasCambioDeRfc(supabase, 1, "AUCD870504PU0"), 0);
 });

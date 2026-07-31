@@ -6,6 +6,7 @@
  */
 import type { SupabaseClient } from "jsr:@supabase/supabase-js@2";
 import { placeholderRfc } from "./accounts.ts";
+import { type Hallazgo, revalidarRfcAjeno } from "./validator.ts";
 
 export interface AppUser {
   id: number;
@@ -159,6 +160,43 @@ export async function updateUserRfc(
     .maybeSingle();
   if (error) throw new Error(`Error actualizando RFC: ${error.message}`);
   return (data as UserProfile) ?? null;
+}
+
+/** Recalcula el hallazgo RFC_AJENO en las facturas ya guardadas del usuario,
+ * tras cambiar su RFC (Fase M11).
+ *
+ * Devuelve cuántas facturas cambiaron. Ver `revalidarRfcAjeno()` en
+ * validator.ts para el razonamiento de por qué solo se toca ese hallazgo.
+ */
+export async function revalidarFacturasTrasCambioDeRfc(
+  supabase: SupabaseClient, userId: number, nuevoRfc: string,
+): Promise<number> {
+  const { data, error } = await supabase
+    .schema("facturapp").from("invoices")
+    .select("id, receptor_rfc, estatus, hallazgos")
+    .eq("user_id", userId);
+  if (error) throw new Error(`Error leyendo facturas para revalidar: ${error.message}`);
+
+  let cambiadas = 0;
+  for (const factura of data ?? []) {
+    const previos = (factura.hallazgos ?? []) as Hallazgo[];
+    const { hallazgos, estatus } = revalidarRfcAjeno(
+      previos, factura.receptor_rfc ?? "", nuevoRfc,
+    );
+    // Solo se escribe si algo cambió: evita reescribir toda la tabla en cada
+    // guardado de RFC, que suele ser el mismo valor reconfirmado.
+    if (estatus === factura.estatus && hallazgos.length === previos.length) continue;
+
+    const { error: updateError } = await supabase
+      .schema("facturapp").from("invoices")
+      .update({ hallazgos, estatus })
+      .eq("id", factura.id);
+    if (updateError) {
+      throw new Error(`Error revalidando la factura ${factura.id}: ${updateError.message}`);
+    }
+    cambiadas++;
+  }
+  return cambiadas;
 }
 
 /** ¿Hay OTRO usuario con este RFC?

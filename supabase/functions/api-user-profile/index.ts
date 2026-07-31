@@ -3,7 +3,9 @@ import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { corsHeaders, jsonHeaders } from "../_shared/cors.ts";
 import { getCurrentUser } from "../_shared/auth.ts";
-import { getUserProfile, rfcTomadoPorOtro, updateUserRfc } from "../_shared/users.ts";
+import {
+  getUserProfile, revalidarFacturasTrasCambioDeRfc, rfcTomadoPorOtro, updateUserRfc,
+} from "../_shared/users.ts";
 import { validateRfc } from "../_shared/rfc_validation.ts";
 
 function getSupabaseClient() {
@@ -74,7 +76,14 @@ async function handlePatch(req: Request): Promise<Response> {
   if (!perfil) {
     return jsonResponse({ detail: "No se pudo actualizar el perfil" }, 500);
   }
-  return jsonResponse(perfil, 200);
+
+  // Las facturas ya archivadas se validaron contra el RFC anterior. Si no se
+  // recalculan, quedan advertencias que se contradicen con el perfil en
+  // pantalla: "Factura emitida a RFC X; no será deducible" junto a un RFC de
+  // usuario que ES X. Ver revalidarRfcAjeno() en validator.ts.
+  const revalidadas = await revalidarFacturasTrasCambioDeRfc(supabase, authUser.id, rfc);
+
+  return jsonResponse({ ...perfil, facturas_revalidadas: revalidadas }, 200);
 }
 
 serve(async (req: Request) => {
