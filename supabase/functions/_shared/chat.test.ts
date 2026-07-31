@@ -6,7 +6,8 @@ import { assert, assertEquals, assertThrows } from "jsr:@std/assert@1";
 import { APIError, APIConnectionError, OpenAIError, RateLimitError } from "npm:openai@4";
 import { FakeSupabaseClient } from "./fake_supabase_client.ts";
 import {
-  ChatIntent, ChatServiceError, chat, classifyIntent, getRecentChatHistory, translateOpenAIError,
+  buildSystemPrompt, ChatIntent, ChatServiceError, chat, classifyIntent,
+  getRecentChatHistory, translateOpenAIError,
 } from "./chat.ts";
 
 // deno-lint-ignore no-explicit-any
@@ -252,4 +253,43 @@ Deno.test("getRecentChatHistory: devuelve los mensajes en orden cronológico", a
     { role: "user", content: "primero" },
     { role: "assistant", content: "segundo" },
   ]);
+});
+
+// ---- buildSystemPrompt (fecha en el prompt) ---------------------------------
+//
+// Sin la fecha, el modelo resuelve "este año" adivinando a partir de sus
+// datos de entrenamiento. En producción contestó sobre 2023 a un usuario que
+// preguntaba por el año en curso, diciendo que no tenía deducciones — una
+// respuesta falsa con aspecto de correcta.
+
+Deno.test("buildSystemPrompt: incluye el año en curso", () => {
+  const prompt = buildSystemPrompt(new Date("2026-07-30T15:00:00Z"));
+  assert(prompt.includes("2026"), "el prompt debe indicar el año en curso");
+});
+
+Deno.test("buildSystemPrompt: instruye explícitamente a no suponer la fecha", () => {
+  const prompt = buildSystemPrompt(new Date("2026-07-30T15:00:00Z"));
+  assert(prompt.includes("NUNCA supongas la fecha"));
+});
+
+Deno.test("buildSystemPrompt: conserva las instrucciones base", () => {
+  const prompt = buildSystemPrompt(new Date("2026-07-30T15:00:00Z"));
+  assert(prompt.includes("FacturasMX"));
+  assert(prompt.includes("No inventes cifras"));
+});
+
+Deno.test("buildSystemPrompt: usa la zona de México, no UTC", () => {
+  // 1 de enero 03:00 UTC = 31 de diciembre 21:00 en México. El año fiscal
+  // que corresponde es el que TERMINA, no el que empieza en UTC. Es el
+  // momento exacto en que equivocarse sería más costoso.
+  const prompt = buildSystemPrompt(new Date("2027-01-01T03:00:00Z"));
+  assert(
+    prompt.includes("2026"),
+    "en Nochevieja UTC el año en México sigue siendo el anterior",
+  );
+});
+
+Deno.test("buildSystemPrompt: a mediodía de México el año es el corriente", () => {
+  const prompt = buildSystemPrompt(new Date("2027-01-01T18:00:00Z"));
+  assert(prompt.includes("2027"));
 });

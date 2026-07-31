@@ -260,11 +260,53 @@ async function executeTool(
 // LLM (OpenAI) — aislado para poder mockearlo en tests
 // --------------------------------------------------------------------------
 
-const SYSTEM_PROMPT =
+const SYSTEM_PROMPT_BASE =
   "Eres el asistente de FacturasMX, una plataforma mexicana de deducciones " +
   "fiscales (CFDI 4.0). Responde SIEMPRE en español, claro y accionable. " +
   "Usa las herramientas disponibles para consultar los datos reales del " +
   "usuario antes de responder con montos o listas. No inventes cifras.";
+
+/** Año en curso según la zona horaria de México, no la del servidor.
+ *
+ * Las Edge Functions corren en UTC. Entre las 18:00 y la medianoche del 31
+ * de diciembre en México ya es 1 de enero en UTC, así que usar la fecha del
+ * servidor daría el año equivocado justo en el cambio de ejercicio fiscal —
+ * el peor momento posible para equivocarse en una app de deducciones. */
+function fechaEnMexico(hoy: Date): { texto: string; anio: number } {
+  const formato = new Intl.DateTimeFormat("es-MX", {
+    timeZone: "America/Mexico_City",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+  const partes = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Mexico_City",
+    year: "numeric",
+  }).format(hoy);
+  return { texto: formato.format(hoy), anio: Number.parseInt(partes, 10) };
+}
+
+/** Construye el prompt del sistema incluyendo la fecha de hoy.
+ *
+ * SIN esto, el modelo no sabe en qué fecha vive y resuelve las expresiones
+ * relativas ("este año", "el mes pasado") adivinando a partir de sus datos
+ * de entrenamiento. Se detectó en producción: a la pregunta "¿cuánto llevo
+ * este año?" el modelo consultó **2023** y contestó que no había
+ * deducciones registradas — una respuesta que parece legítima y es falsa.
+ *
+ * Es una divergencia respecto a Python, que tiene el mismo defecto. Se
+ * corrige igual porque en una app fiscal una cifra equivocada con aspecto
+ * de correcta es peor que un error visible.
+ *
+ * `hoy` es parámetro para poder probarlo con una fecha fija. */
+export function buildSystemPrompt(hoy: Date = new Date()): string {
+  const { texto, anio } = fechaEnMexico(hoy);
+  return SYSTEM_PROMPT_BASE +
+    ` Hoy es ${texto} (zona horaria de México). El año fiscal en curso es ` +
+    `${anio}. Usa esa fecha para resolver referencias relativas como "este ` +
+    `año", "el año pasado" o "este mes": NUNCA supongas la fecha. Si el ` +
+    `usuario no indica un año, asume ${anio}.`;
+}
 
 export class ChatServiceError extends Error {
   constructor(public userMessage: string) {
@@ -365,7 +407,7 @@ export async function chat(
 ): Promise<ChatResult> {
   // deno-lint-ignore no-explicit-any
   const messages: any[] = [
-    { role: "system", content: SYSTEM_PROMPT },
+    { role: "system", content: buildSystemPrompt() },
     ...history,
     { role: "user", content: message },
   ];
