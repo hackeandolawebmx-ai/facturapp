@@ -28,8 +28,11 @@ import {
   downloadMediaFromMeta, extractWhatsappMessages, extractWhatsappTextMessages,
   sendWhatsappMessage, verifyWhatsappSignature, whatsappReplyText,
 } from "../_shared/whatsapp.ts";
-import { interceptQuickCommand } from "../_shared/whatsapp_commands.ts";
-import { getOrCreateUserByPhone } from "../_shared/users.ts";
+import {
+  esPeticionDeEnlaceWeb, interceptQuickCommand, mensajeEnlaceAlta,
+  mensajeEnlaceLogin, MENSAJE_WEB_NO_DISPONIBLE,
+} from "../_shared/whatsapp_commands.ts";
+import { getOrCreateUserByPhone, getUserAuth } from "../_shared/users.ts";
 import { ingestInvoice } from "../_shared/invoices.ts";
 import { chat, getRecentChatHistory, realChatCompletion } from "../_shared/chat.ts";
 import { logDebug } from "../_shared/debug_log.ts";
@@ -67,6 +70,29 @@ async function handleTextMessage(
     await logDebug(supabase, "whatsapp: comando rápido", { from: msg.from, text: msg.text });
     await sendWhatsappMessage(msg.from, quickReply, whatsappToken, phoneNumberId);
     return { from: msg.from, tipo: "comando_rapido" };
+  }
+
+  // Acceso a la web (M12). Va aquí y no en interceptQuickCommand porque la
+  // respuesta depende del usuario: si aún no tiene contraseña necesita el
+  // enlace con su web_token para crearla, y si ya la tiene basta la dirección.
+  //
+  // Es el único camino por el que un usuario de WhatsApp puede llegar a la
+  // web: su cuenta se creó sola al mandar una factura, nace sin contraseña, y
+  // sin esto no habría forma de establecerla salvo leyendo la base a mano.
+  if (esPeticionDeEnlaceWeb(msg.text)) {
+    const urlDashboard = Deno.env.get("DASHBOARD_URL");
+    let respuesta: string;
+    if (!urlDashboard) {
+      respuesta = MENSAJE_WEB_NO_DISPONIBLE;
+    } else {
+      const credenciales = await getUserAuth(supabase, user.id);
+      respuesta = credenciales?.hashed_password || !credenciales?.web_token
+        ? mensajeEnlaceLogin(urlDashboard)
+        : mensajeEnlaceAlta(urlDashboard, credenciales.web_token);
+    }
+    await logDebug(supabase, "whatsapp: enlace web", { from: msg.from });
+    await sendWhatsappMessage(msg.from, respuesta, whatsappToken, phoneNumberId);
+    return { from: msg.from, tipo: "enlace_web" };
   }
 
   await supabase.schema("facturapp").from("chat_messages")

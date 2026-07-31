@@ -166,7 +166,12 @@ export interface UserAuthRow {
   id: number;
   rfc: string;
   hashed_password: string | null;
+  /** Sirve para el arranque de contraseña, así que es una credencial más y
+   * viaja con el resto. */
+  web_token: string | null;
 }
+
+const AUTH_COLS = "id, rfc, hashed_password, web_token";
 
 /** Trae lo mínimo para decidir sobre credenciales: si el usuario ya tiene
  * contraseña o no. Se separa de `getUserProfile` a propósito para no pasear
@@ -176,7 +181,7 @@ export async function getUserAuth(
 ): Promise<UserAuthRow | null> {
   const { data, error } = await supabase
     .schema("facturapp").from("users")
-    .select("id, rfc, hashed_password")
+    .select(AUTH_COLS)
     .eq("id", userId)
     .maybeSingle();
   if (error) throw new Error(`Error consultando credenciales: ${error.message}`);
@@ -190,7 +195,7 @@ export async function getUserAuthByWebToken(
 ): Promise<UserAuthRow | null> {
   const { data, error } = await supabase
     .schema("facturapp").from("users")
-    .select("id, rfc, hashed_password")
+    .select(AUTH_COLS)
     .eq("web_token", token)
     .maybeSingle();
   if (error) throw new Error(`Error consultando credenciales: ${error.message}`);
