@@ -6,7 +6,10 @@
  */
 import { assertEquals } from "jsr:@std/assert@1";
 import { FakeSupabaseClient } from "./fake_supabase_client.ts";
-import { getOrCreateUserByEmail, getOrCreateUserByPhone, getUserByWebToken, getUserProfile } from "./users.ts";
+import {
+  getOrCreateUserByEmail, getOrCreateUserByPhone, getUserByWebToken, getUserProfile,
+  rfcTomadoPorOtro, updateUserRfc,
+} from "./users.ts";
 
 // deno-lint-ignore no-explicit-any
 function client(): any {
@@ -107,4 +110,65 @@ Deno.test("getUserByWebToken: resuelve por token válido", async () => {
 Deno.test("getUserByWebToken: token inválido devuelve null", async () => {
   const supabase = client();
   assertEquals(await getUserByWebToken(supabase, "no-existe"), null);
+});
+
+// ---- updateUserRfc / rfcTomadoPorOtro (Fase M11) ----------------------------
+//
+// Sin esto, una cuenta creada por WhatsApp o correo se queda con su RFC
+// sintético `PEND...` para siempre, y TODA su facturación sale marcada como
+// no deducible. Es el camino que accounts.py daba por existente y no existía.
+
+// deno-lint-ignore no-explicit-any
+function conUsuario(supabase: any, id: number, rfc: string, email = `u${id}@x.com`) {
+  supabase.tables.users.push({
+    id, email, nombre: `Usuario ${id}`, rfc, plan: "free",
+    web_token: `TOKEN${id}`, whatsapp_phone: null,
+  });
+}
+
+Deno.test("updateUserRfc: reemplaza el RFC sintético y devuelve el perfil", async () => {
+  const supabase = client();
+  conUsuario(supabase, 1, "PEND5AE3C89EC");
+
+  const perfil = await updateUserRfc(supabase, 1, "AUCD870504PU0");
+  assertEquals(perfil?.rfc, "AUCD870504PU0");
+  assertEquals(supabase.tables.users[0].rfc, "AUCD870504PU0");
+});
+
+Deno.test("updateUserRfc: usuario inexistente devuelve null", async () => {
+  const supabase = client();
+  assertEquals(await updateUserRfc(supabase, 999, "AUCD870504PU0"), null);
+});
+
+Deno.test("updateUserRfc: no toca a los demás usuarios", async () => {
+  const supabase = client();
+  conUsuario(supabase, 1, "PEND111111111");
+  conUsuario(supabase, 2, "PEND222222222");
+
+  await updateUserRfc(supabase, 1, "AUCD870504PU0");
+  assertEquals(supabase.tables.users[1].rfc, "PEND222222222");
+});
+
+Deno.test("rfcTomadoPorOtro: detecta un RFC ya usado por otra cuenta", async () => {
+  const supabase = client();
+  conUsuario(supabase, 1, "PEND111111111");
+  conUsuario(supabase, 2, "AUCD870504PU0");
+
+  assertEquals(await rfcTomadoPorOtro(supabase, 1, "AUCD870504PU0"), true);
+});
+
+Deno.test("rfcTomadoPorOtro: el propio RFC del usuario no cuenta como tomado", async () => {
+  // Reguardar el mismo RFC no debe fallar; sin el neq() sobre el propio id,
+  // el usuario se bloquearía a sí mismo.
+  const supabase = client();
+  conUsuario(supabase, 1, "AUCD870504PU0");
+
+  assertEquals(await rfcTomadoPorOtro(supabase, 1, "AUCD870504PU0"), false);
+});
+
+Deno.test("rfcTomadoPorOtro: un RFC libre devuelve false", async () => {
+  const supabase = client();
+  conUsuario(supabase, 1, "PEND111111111");
+
+  assertEquals(await rfcTomadoPorOtro(supabase, 1, "XAXX010101000"), false);
 });

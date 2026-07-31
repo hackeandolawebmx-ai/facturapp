@@ -1,0 +1,548 @@
+/**
+ * Dashboard web de FacturasMX (Fase M11).
+ *
+ * Port del `templates/dashboard.html` de Python, con tres cambios de fondo:
+ *
+ * 1. **Acceso con login**, no con `/a/{token}`. El original abría el archivo
+ *    fiscal completo a cualquiera que tuviera el enlace. Aquí se usa la
+ *    autenticación que ya existe (auth-login → JWT) y se consumen los
+ *    endpoints autenticados en vez de los públicos.
+ *
+ * 2. **Sin datos inventados.** El template original traía cifras escritas a
+ *    mano ($61,535 de total, "12 facturas", una barra de "34% de $198,031",
+ *    filas de farmacias ficticias) que el JavaScript reemplazaba al cargar.
+ *    Si el fetch fallaba, el usuario se quedaba viendo cantidades fiscales
+ *    fabricadas con aspecto de reales. Aquí no hay ninguna cifra que no
+ *    venga de la base de datos.
+ *
+ * 3. **Captura del RFC.** Es el único lugar donde un usuario dado de alta por
+ *    WhatsApp o correo puede cambiar su RFC sintético (`PEND...`) por el
+ *    real. Sin eso, todas sus facturas salen marcadas como no deducibles.
+ *
+ * Se conserva el diseño visual del original (tipografía, paleta de papel y
+ * tinta, cédula como elemento central): es trabajo de diseño ya hecho y
+ * bueno, y no había razón para rehacerlo.
+ *
+ * El JavaScript embebido usa concatenación en vez de plantillas literales
+ * para no chocar con la plantilla literal de TypeScript que lo contiene.
+ */
+export const PAGINA_HTML = String.raw`<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FacturasMX — Archivo fiscal</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Serif:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --papel:#F7F5F0; --tinta:#141E2C; --tinta-suave:#4A5568; --regla:#D9D4C8;
+    --guinda:#7C2140; --guinda-fondo:#F6E9ED; --sello:#1E6B45; --sello-fondo:#E7F1EB;
+    --ambar:#8A5A00; --ambar-fondo:#F5EDDB; --blanco:#FFFFFF;
+    --sombra:0 1px 3px rgba(20,30,44,.08);
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html{font-size:16px}
+  body{background:var(--papel);color:var(--tinta);font-family:'IBM Plex Sans',sans-serif;line-height:1.5}
+  a{color:inherit}
+  button{font:inherit;cursor:pointer}
+  :focus-visible{outline:2px solid var(--tinta);outline-offset:2px}
+  @media (prefers-reduced-motion: reduce){*{transition:none!important;animation:none!important}}
+  [hidden]{display:none!important}
+
+  .topbar{display:flex;align-items:center;gap:1rem;padding:.9rem 1.5rem;border-bottom:1px solid var(--regla);background:var(--blanco);flex-wrap:wrap}
+  .marca{font-family:'IBM Plex Serif',serif;font-weight:700;font-size:1.15rem;letter-spacing:-.01em}
+  .marca span{color:var(--guinda)}
+  .selector-anio{border:1px solid var(--regla);background:var(--papel);border-radius:4px;padding:.3rem .6rem;font-family:'IBM Plex Mono',monospace;font-size:.85rem}
+  .identidad{margin-left:auto;display:flex;align-items:center;gap:.7rem;font-size:.8rem;color:var(--tinta-suave)}
+  .rfc-actual{font-family:'IBM Plex Mono',monospace}
+  .btn-plano{background:none;border:1px solid var(--regla);border-radius:4px;padding:.25rem .6rem;font-size:.75rem;color:var(--tinta-suave)}
+  .btn-plano:hover{border-color:var(--tinta);color:var(--tinta)}
+
+  .contenido{max-width:1080px;margin:0 auto;padding:2rem 1.5rem 4rem}
+
+  /* ---------- Acceso ---------- */
+  .acceso{max-width:380px;margin:4rem auto;background:var(--blanco);border:1px solid var(--regla);border-radius:6px;box-shadow:var(--sombra);padding:2rem}
+  .acceso h1{font-family:'IBM Plex Serif',serif;font-size:1.4rem;margin-bottom:.4rem}
+  .acceso p.sub{font-size:.85rem;color:var(--tinta-suave);margin-bottom:1.4rem}
+  .campo{margin-bottom:1rem}
+  .campo label{display:block;font-size:.78rem;font-weight:600;margin-bottom:.3rem}
+  .campo input{width:100%;border:1px solid var(--regla);background:var(--papel);border-radius:4px;padding:.55rem .7rem;font:inherit;font-size:.9rem}
+  .btn-principal{width:100%;background:var(--tinta);color:var(--papel);border:none;border-radius:4px;padding:.65rem 1rem;font-weight:600;font-size:.9rem}
+  .btn-principal:disabled{opacity:.6;cursor:not-allowed}
+  .error{background:var(--guinda-fondo);color:var(--guinda);border-left:3px solid var(--guinda);border-radius:0 4px 4px 0;padding:.6rem .8rem;font-size:.82rem;margin-bottom:1rem}
+
+  /* ---------- Aviso de RFC pendiente ---------- */
+  .aviso-rfc{background:var(--ambar-fondo);border:1px solid #E0CFA6;border-left:4px solid var(--ambar);border-radius:0 6px 6px 0;padding:1rem 1.2rem;margin-bottom:1.5rem}
+  .aviso-rfc h2{font-family:'IBM Plex Serif',serif;font-size:1rem;color:var(--ambar);margin-bottom:.3rem}
+  .aviso-rfc p{font-size:.85rem;color:var(--tinta-suave);margin-bottom:.8rem}
+  .fila-rfc{display:flex;gap:.5rem;flex-wrap:wrap}
+  .fila-rfc input{flex:1;min-width:180px;border:1px solid var(--regla);background:var(--blanco);border-radius:4px;padding:.45rem .7rem;font-family:'IBM Plex Mono',monospace;font-size:.85rem;text-transform:uppercase}
+  .fila-rfc button{background:var(--tinta);color:var(--papel);border:none;border-radius:4px;padding:.45rem 1rem;font-weight:600;font-size:.82rem}
+
+  /* ---------- Cédula ---------- */
+  .cedula{background:var(--blanco);border:1px solid var(--regla);border-radius:6px;box-shadow:var(--sombra);margin-bottom:2rem;overflow:hidden}
+  .cedula-encabezado{display:flex;align-items:baseline;justify-content:space-between;gap:1rem;padding:1.1rem 1.5rem .6rem;flex-wrap:wrap}
+  .cedula-titulo{font-family:'IBM Plex Serif',serif;font-weight:600;font-size:1.35rem}
+  .cedula-nota{font-size:.8rem;color:var(--tinta-suave)}
+  .cedula-lineas{padding:0 1.5rem 1.3rem}
+  .linea{display:grid;grid-template-columns:1fr auto auto;align-items:baseline;gap:1rem;padding:.55rem 0;border-top:1px dotted var(--regla)}
+  .linea:first-child{border-top:none}
+  .linea-cat{font-size:.92rem}
+  .linea-num{font-size:.75rem;color:var(--tinta-suave)}
+  .linea-monto{font-family:'IBM Plex Mono',monospace;font-size:.95rem;text-align:right;min-width:7.5rem}
+  .linea.total{border-top:2px solid var(--tinta);margin-top:.3rem;padding-top:.75rem;font-weight:600}
+  .linea.total .linea-monto{font-weight:500;font-size:1.05rem}
+  .vacio{padding:.6rem 0;font-size:.88rem;color:var(--tinta-suave)}
+
+  /* ---------- Filtros ---------- */
+  .filtros{display:flex;gap:.6rem;flex-wrap:wrap;margin-bottom:1rem;align-items:center}
+  .filtro{border:1px solid var(--regla);background:var(--blanco);border-radius:4px;padding:.45rem .7rem;font-size:.85rem;color:var(--tinta);font-family:inherit}
+  .buscador{flex:1;min-width:200px}
+  .buscador input{width:100%;border:1px solid var(--regla);background:var(--blanco);border-radius:4px;padding:.45rem .7rem;font-size:.85rem;font-family:inherit}
+
+  /* ---------- Tabla ---------- */
+  .archivo{background:var(--blanco);border:1px solid var(--regla);border-radius:6px;box-shadow:var(--sombra);overflow-x:auto}
+  table{width:100%;border-collapse:collapse;min-width:720px}
+  thead th{text-align:left;font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;color:var(--tinta-suave);font-weight:600;padding:.7rem .9rem;border-bottom:1px solid var(--regla)}
+  tbody td{padding:.75rem .9rem;border-bottom:1px dotted var(--regla);font-size:.88rem;vertical-align:middle}
+  tbody tr:last-child td{border-bottom:none}
+  tbody tr:hover{background:var(--papel)}
+  .fecha,.monto,.folio{font-family:'IBM Plex Mono',monospace;font-size:.82rem}
+  .monto{text-align:right;white-space:nowrap}
+  .folio{color:var(--tinta-suave)}
+  .emisor{font-weight:500}
+  .emisor small{display:block;font-weight:400;color:var(--tinta-suave);font-size:.76rem}
+
+  .chip{display:inline-block;font-size:.72rem;font-weight:600;padding:.18rem .55rem;border-radius:99px;white-space:nowrap;background:#EDEAE3;color:var(--tinta-suave)}
+  .chip.medicos{background:#E8EDF5;color:#28406B}
+  .chip.colegiaturas{background:#EFE9F5;color:#4C3570}
+  .chip.seguros{background:#E9F2F2;color:#20565A}
+  .chip.hipoteca{background:#F1EEE4;color:#5C5230}
+
+  .estatus{display:inline-flex;align-items:center;gap:.35rem;font-size:.76rem;font-weight:600;padding:.2rem .6rem;border-radius:3px}
+  .estatus::before{content:"";width:7px;height:7px;border-radius:50%}
+  .estatus.valida{background:var(--sello-fondo);color:var(--sello)}
+  .estatus.valida::before{background:var(--sello)}
+  .estatus.advertencia{background:var(--guinda-fondo);color:var(--guinda)}
+  .estatus.advertencia::before{background:var(--guinda)}
+  .estatus.revisar{background:var(--ambar-fondo);color:var(--ambar)}
+  .estatus.revisar::before{background:var(--ambar)}
+
+  .fila-advertencia td{border-bottom:none;padding-bottom:.2rem}
+  .detalle-advertencia td{padding-top:0;font-size:.78rem;color:var(--guinda)}
+  .detalle-advertencia .caja{background:var(--guinda-fondo);border-left:3px solid var(--guinda);border-radius:0 4px 4px 0;padding:.5rem .8rem;display:inline-block;margin-right:.4rem}
+
+  .pie{margin-top:1.5rem;font-size:.78rem;color:var(--tinta-suave);text-align:center}
+
+  @media (max-width:640px){
+    .contenido{padding:1.2rem 1rem 3rem}
+    .cedula-encabezado,.cedula-lineas{padding-left:1rem;padding-right:1rem}
+    .linea{grid-template-columns:1fr auto}
+    .linea-num{display:none}
+  }
+</style>
+</head>
+<body>
+
+<!-- ---------------- Pantalla de acceso ---------------- -->
+<section id="pantalla-acceso" class="acceso">
+  <h1>Facturas<span style="color:#7C2140">MX</span></h1>
+  <p class="sub">Entra para consultar tu archivo fiscal.</p>
+  <div id="error-acceso" class="error" hidden></div>
+  <form id="form-acceso">
+    <div class="campo">
+      <label for="email">Correo</label>
+      <input type="email" id="email" autocomplete="username" required>
+    </div>
+    <div class="campo">
+      <label for="password">Contraseña</label>
+      <input type="password" id="password" autocomplete="current-password" required>
+    </div>
+    <button type="submit" class="btn-principal" id="btn-entrar">Entrar</button>
+  </form>
+</section>
+
+<!-- ---------------- Dashboard ---------------- -->
+<div id="pantalla-datos" hidden>
+  <header class="topbar">
+    <div class="marca">Facturas<span>MX</span></div>
+    <select class="selector-anio" id="selector-anio" aria-label="Ejercicio fiscal"></select>
+    <div class="identidad">
+      <span class="rfc-actual" id="rfc-actual"></span>
+      <button class="btn-plano" id="btn-salir">Salir</button>
+    </div>
+  </header>
+
+  <main class="contenido">
+    <div id="error-datos" class="error" hidden></div>
+
+    <section class="aviso-rfc" id="aviso-rfc" hidden>
+      <h2>Falta tu RFC</h2>
+      <p>
+        Tu cuenta se creó automáticamente al recibir tu primera factura, así que
+        todavía no sabemos tu RFC. Mientras no lo indiques, no podemos verificar
+        que las facturas estén emitidas a tu nombre y todas aparecerán como no
+        deducibles.
+      </p>
+      <div class="fila-rfc">
+        <input type="text" id="input-rfc" maxlength="13" placeholder="AAAA000000XXX"
+               aria-label="Tu RFC" autocapitalize="characters" spellcheck="false">
+        <button id="btn-guardar-rfc">Guardar RFC</button>
+      </div>
+    </section>
+
+    <section class="cedula" aria-label="Cédula de deducciones">
+      <div class="cedula-encabezado">
+        <h1 class="cedula-titulo" id="cedula-titulo">Cédula de deducciones</h1>
+        <p class="cedula-nota" id="cedula-nota">Cargando…</p>
+      </div>
+      <div class="cedula-lineas" id="cedula-lineas"></div>
+    </section>
+
+    <div class="filtros">
+      <select class="filtro" id="filtro-mes" aria-label="Filtrar por mes"></select>
+      <select class="filtro" id="filtro-categoria" aria-label="Filtrar por categoría">
+        <option value="">Todas las categorías</option>
+      </select>
+      <select class="filtro" id="filtro-estatus" aria-label="Filtrar por estatus">
+        <option value="">Todos los estatus</option>
+        <option value="valida">Válida</option>
+        <option value="advertencia">Con advertencia</option>
+        <option value="por_revisar">Por revisar</option>
+        <option value="rechazada">Rechazada</option>
+      </select>
+      <div class="buscador">
+        <input type="search" id="buscador" placeholder="Buscar por emisor, RFC o folio fiscal"
+               aria-label="Buscar facturas">
+      </div>
+    </div>
+
+    <section class="archivo" aria-label="Facturas archivadas">
+      <table>
+        <thead>
+          <tr>
+            <th>Fecha</th><th>Emisor</th><th>Folio fiscal</th>
+            <th>Categoría</th><th>Estatus</th><th style="text-align:right">Monto</th>
+          </tr>
+        </thead>
+        <tbody id="tbody-facturas"></tbody>
+      </table>
+    </section>
+
+    <p class="pie" id="pie-conteo"></p>
+  </main>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  // La API vive junto a esta función: /functions/v1/dashboard -> /functions/v1
+  var API = location.pathname.replace(/\/dashboard\/?$/, "");
+  var CLAVE_SESION = "facturapp_token";
+
+  var CHIP = { "Médicos": "medicos", "Colegiaturas": "colegiaturas",
+               "Seguros GMM": "seguros", "Hipoteca": "hipoteca" };
+  var ESTATUS = { "valida": ["valida", "Válida"], "advertencia": ["advertencia", "Advertencia"],
+                  "por_revisar": ["revisar", "Por revisar"], "rechazada": ["revisar", "Rechazada"] };
+  var MESES = ["ENE","FEB","MAR","ABR","MAY","JUN","JUL","AGO","SEP","OCT","NOV","DIC"];
+  var MESES_LARGOS = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio",
+                      "Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
+
+  var token = sessionStorage.getItem(CLAVE_SESION);
+  var facturas = [];
+  var anio = new Date().getFullYear();
+
+  function $(id) { return document.getElementById(id); }
+
+  function money(n) {
+    return "$" + (Number(n) || 0).toLocaleString("es-MX",
+      { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+  function fechaCorta(iso) {
+    if (!iso) return "";
+    var p = String(iso).split("-");
+    if (p.length < 3) return iso;
+    return p[2].slice(0, 2) + "·" + MESES[parseInt(p[1], 10) - 1] + "·" + p[0].slice(2);
+  }
+  function folioCorto(u) {
+    if (!u) return "";
+    return u.length > 12 ? u.slice(0, 4) + "…" + u.slice(-4) : u;
+  }
+  function escapeHtml(s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
+  function mostrarError(id, mensaje) {
+    var el = $(id);
+    el.textContent = mensaje;
+    el.hidden = !mensaje;
+  }
+
+  // ---- Acceso -------------------------------------------------------------
+
+  $("form-acceso").addEventListener("submit", async function (ev) {
+    ev.preventDefault();
+    mostrarError("error-acceso", "");
+    var btn = $("btn-entrar");
+    btn.disabled = true;
+    btn.textContent = "Entrando…";
+    try {
+      var resp = await fetch(API + "/auth-login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: $("email").value, password: $("password").value })
+      });
+      var cuerpo = await resp.json();
+      if (!resp.ok) {
+        // El 429 del rate limiter trae su propio mensaje; se muestra tal cual
+        // en vez de un "credenciales inválidas" que sería engañoso.
+        mostrarError("error-acceso", cuerpo.detail || "No se pudo iniciar sesión.");
+        return;
+      }
+      token = cuerpo.access_token;
+      sessionStorage.setItem(CLAVE_SESION, token);
+      await entrar();
+    } catch (e) {
+      mostrarError("error-acceso", "No se pudo conectar con el servidor.");
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "Entrar";
+    }
+  });
+
+  $("btn-salir").addEventListener("click", function () {
+    sessionStorage.removeItem(CLAVE_SESION);
+    token = null;
+    $("pantalla-datos").hidden = true;
+    $("pantalla-acceso").hidden = false;
+  });
+
+  function salirPorSesionInvalida() {
+    sessionStorage.removeItem(CLAVE_SESION);
+    token = null;
+    $("pantalla-datos").hidden = true;
+    $("pantalla-acceso").hidden = false;
+    mostrarError("error-acceso", "Tu sesión expiró. Entra de nuevo.");
+  }
+
+  async function pedir(ruta, opciones) {
+    opciones = opciones || {};
+    opciones.headers = Object.assign(
+      { "Authorization": "Bearer " + token }, opciones.headers || {});
+    var resp = await fetch(API + ruta, opciones);
+    if (resp.status === 401) { salirPorSesionInvalida(); return null; }
+    return resp;
+  }
+
+  // ---- Carga de datos -----------------------------------------------------
+
+  async function entrar() {
+    $("pantalla-acceso").hidden = true;
+    $("pantalla-datos").hidden = false;
+    prepararSelectorAnio();
+    prepararSelectorMes();
+    await cargarPerfil();
+    await cargarDatos();
+  }
+
+  function prepararSelectorAnio() {
+    var sel = $("selector-anio");
+    if (sel.options.length) return;
+    var actual = new Date().getFullYear();
+    for (var y = actual; y >= actual - 4; y--) {
+      var o = document.createElement("option");
+      o.value = String(y);
+      o.textContent = "Ejercicio " + y;
+      sel.appendChild(o);
+    }
+    sel.value = String(anio);
+    sel.addEventListener("change", function () {
+      anio = parseInt(sel.value, 10);
+      cargarDatos();
+    });
+  }
+
+  function prepararSelectorMes() {
+    var sel = $("filtro-mes");
+    if (sel.options.length) return;
+    var o = document.createElement("option");
+    o.value = ""; o.textContent = "Todos los meses";
+    sel.appendChild(o);
+    for (var i = 0; i < 12; i++) {
+      var op = document.createElement("option");
+      op.value = String(i + 1).padStart(2, "0");
+      op.textContent = MESES_LARGOS[i];
+      sel.appendChild(op);
+    }
+  }
+
+  async function cargarPerfil() {
+    var resp = await pedir("/api-user-profile");
+    if (!resp || !resp.ok) return;
+    var perfil = await resp.json();
+    $("rfc-actual").textContent = "RFC " + perfil.rfc;
+    // Las cuentas creadas por WhatsApp o correo llevan un RFC sintético que
+    // empieza con PEND. Mientras siga así, toda su facturación se marca como
+    // no deducible, así que se pide de forma prominente.
+    var pendiente = /^PEND/i.test(perfil.rfc || "");
+    $("aviso-rfc").hidden = !pendiente;
+  }
+
+  $("btn-guardar-rfc").addEventListener("click", async function () {
+    var valor = $("input-rfc").value.trim().toUpperCase();
+    mostrarError("error-datos", "");
+    var resp = await pedir("/api-user-profile", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ rfc: valor })
+    });
+    if (!resp) return;
+    var cuerpo = await resp.json();
+    if (!resp.ok) {
+      mostrarError("error-datos", cuerpo.detail || "No se pudo guardar el RFC.");
+      return;
+    }
+    $("rfc-actual").textContent = "RFC " + cuerpo.rfc;
+    $("aviso-rfc").hidden = true;
+    // Las facturas ya guardadas conservan la advertencia: el validador la
+    // evalúa al momento de ingerir, no se recalcula. Se dice explícitamente
+    // para que el usuario no crea que el aviso desapareció de sus facturas.
+    mostrarError("error-datos",
+      "RFC guardado. Las facturas nuevas ya se validarán contra él; las que " +
+      "ya estaban archivadas conservan la advertencia anterior.");
+  });
+
+  async function cargarDatos() {
+    mostrarError("error-datos", "");
+    $("cedula-nota").textContent = "Cargando…";
+    $("cedula-titulo").textContent = "Cédula de deducciones · " + anio;
+    try {
+      var respS = await pedir("/api-summary?year=" + anio);
+      var respF = await pedir("/api-invoices?year=" + anio);
+      if (!respS || !respF) return;
+      if (!respS.ok || !respF.ok) {
+        mostrarError("error-datos", "No se pudieron cargar tus datos.");
+        $("cedula-nota").textContent = "";
+        return;
+      }
+      var resumen = await respS.json();
+      var datos = await respF.json();
+      facturas = datos.invoices || [];
+      pintarCedula(resumen);
+      poblarCategorias();
+      aplicarFiltros();
+    } catch (e) {
+      mostrarError("error-datos", "No se pudo conectar con el servidor.");
+      $("cedula-nota").textContent = "";
+    }
+  }
+
+  function pintarCedula(s) {
+    var cont = $("cedula-lineas");
+    var cats = s.categorias || {};
+    var nombres = Object.keys(cats);
+    var html = "";
+    if (!nombres.length) {
+      html = '<p class="vacio">Todavía no hay facturas archivadas en ' + anio + '.</p>';
+    } else {
+      nombres.forEach(function (cat) {
+        var c = cats[cat];
+        html += '<div class="linea"><span class="linea-cat">' + escapeHtml(cat) + '</span>' +
+                '<span class="linea-num">' + c.facturas + ' factura' +
+                (c.facturas === 1 ? '' : 's') + '</span>' +
+                '<span class="linea-monto">' + money(c.total) + '</span></div>';
+      });
+      html += '<div class="linea total"><span class="linea-cat">Total acumulado</span>' +
+              '<span class="linea-num"></span><span class="linea-monto">' +
+              money(s.total_general) + '</span></div>';
+    }
+    cont.innerHTML = html;
+    var n = s.num_facturas || 0;
+    $("cedula-nota").textContent = n + " factura" + (n === 1 ? "" : "s") + " archivada" +
+      (n === 1 ? "" : "s");
+  }
+
+  function poblarCategorias() {
+    var sel = $("filtro-categoria");
+    var previa = sel.value;
+    var vistas = {};
+    facturas.forEach(function (f) { if (f.categoria) vistas[f.categoria] = true; });
+    sel.innerHTML = '<option value="">Todas las categorías</option>';
+    Object.keys(vistas).sort().forEach(function (cat) {
+      var o = document.createElement("option");
+      o.value = cat; o.textContent = cat;
+      sel.appendChild(o);
+    });
+    sel.value = previa;
+  }
+
+  function aplicarFiltros() {
+    var mes = $("filtro-mes").value;
+    var cat = $("filtro-categoria").value;
+    var est = $("filtro-estatus").value;
+    var q = $("buscador").value.trim().toLowerCase();
+
+    var vis = facturas.filter(function (f) {
+      if (mes && String(f.fecha_emision || "").slice(5, 7) !== mes) return false;
+      if (cat && f.categoria !== cat) return false;
+      if (est && f.estatus !== est) return false;
+      if (q) {
+        var heno = [f.emisor_nombre, f.emisor_rfc, f.uuid].join(" ").toLowerCase();
+        if (heno.indexOf(q) === -1) return false;
+      }
+      return true;
+    });
+    pintarTabla(vis);
+  }
+
+  ["filtro-mes", "filtro-categoria", "filtro-estatus"].forEach(function (id) {
+    $(id).addEventListener("change", aplicarFiltros);
+  });
+  $("buscador").addEventListener("input", aplicarFiltros);
+
+  function pintarTabla(lista) {
+    var tb = $("tbody-facturas");
+    if (!lista.length) {
+      tb.innerHTML = '<tr><td colspan="6">Ninguna factura coincide con los filtros.</td></tr>';
+      $("pie-conteo").textContent = "";
+      return;
+    }
+    tb.innerHTML = lista.map(function (inv) {
+      var chip = CHIP[inv.categoria] || "";
+      var est = ESTATUS[inv.estatus] || ["revisar", inv.estatus || "—"];
+      var marca = est[0] === "advertencia" ? ' class="fila-advertencia"' : '';
+      var fila = '<tr' + marca + '>' +
+        '<td class="fecha">' + fechaCorta(inv.fecha_emision) + '</td>' +
+        '<td class="emisor">' + escapeHtml(inv.emisor_nombre) +
+          '<small>' + escapeHtml(inv.emisor_rfc) + '</small></td>' +
+        '<td class="folio">' + escapeHtml(folioCorto(inv.uuid)) + '</td>' +
+        '<td><span class="chip ' + chip + '">' +
+          escapeHtml(inv.categoria || "Sin clasificar") + '</span></td>' +
+        '<td><span class="estatus ' + est[0] + '">' + escapeHtml(est[1]) + '</span></td>' +
+        '<td class="monto">' + money(inv.total) + '</td>' +
+      '</tr>';
+      if (inv.hallazgos && inv.hallazgos.length) {
+        fila += '<tr class="detalle-advertencia"><td colspan="6">' +
+          inv.hallazgos.map(function (h) {
+            return '<span class="caja">' + escapeHtml(h.mensaje) + '</span>';
+          }).join(' ') + '</td></tr>';
+      }
+      return fila;
+    }).join("");
+
+    var suma = lista.reduce(function (a, f) { return a + (Number(f.total) || 0); }, 0);
+    $("pie-conteo").textContent = lista.length + " factura" +
+      (lista.length === 1 ? "" : "s") + " · " + money(suma);
+  }
+
+  // Si ya había sesión, entrar directo.
+  if (token) {
+    entrar();
+  }
+})();
+</script>
+</body>
+</html>`;

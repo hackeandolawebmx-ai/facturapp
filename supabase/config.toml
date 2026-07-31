@@ -72,3 +72,9 @@ verify_jwt = false
 
 [functions.api-public-invoices]
 verify_jwt = false
+
+# dashboard sirve HTML público (la pantalla de login incluida), así que no
+# puede exigir un JWT para entregarse. La autenticación ocurre después, en
+# las llamadas que la página hace a la API.
+[functions.dashboard]
+verify_jwt = false

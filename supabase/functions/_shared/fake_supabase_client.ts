@@ -47,6 +47,7 @@ export class FakeSupabaseClient {
 
 class FakeQueryBuilder {
   private filters: Array<[string, unknown]> = [];
+  private negados: Array<[string, unknown]> = [];
   private selectCols: string | null = null;
   private mode: "select" | "insert" | "update" = "select";
   private insertRow: Row | null = null;
@@ -63,6 +64,12 @@ class FakeQueryBuilder {
 
   eq(col: string, value: unknown) {
     this.filters.push([col, value]);
+    return this;
+  }
+
+  /** Fase M11 — lo usa rfcTomadoPorOtro() para excluirse a sí mismo. */
+  neq(col: string, value: unknown) {
+    this.negados.push([col, value]);
     return this;
   }
 
@@ -90,7 +97,8 @@ class FakeQueryBuilder {
 
   private matchRows(): Row[] {
     const rows = this.client.tables[this.table].filter((row) =>
-      this.filters.every(([col, val]) => row[col] === val)
+      this.filters.every(([col, val]) => row[col] === val) &&
+      this.negados.every(([col, val]) => row[col] !== val)
     );
     if (this.orderBy) {
       const { col, ascending } = this.orderBy;
@@ -111,9 +119,24 @@ class FakeQueryBuilder {
     return out;
   }
 
+  /** Filas resultantes, aplicando el patch si el modo es update.
+   *
+   * Centraliza el efecto del update para que `maybeSingle()`, `single()` y
+   * `then()` se comporten igual. Antes solo `then()` lo aplicaba, así que
+   * `.update().select().maybeSingle()` —el patrón que usa updateUserRfc—
+   * devolvía la fila SIN modificar y dejaba la tabla intacta. El fake decía
+   * que el update funcionaba cuando no hacía nada. */
+  private resolverFilas(): Row[] {
+    const rows = this.matchRows();
+    if (this.mode === "update" && this.updatePatch) {
+      for (const row of rows) Object.assign(row, this.updatePatch);
+    }
+    return rows;
+  }
+
   async maybeSingle(): Promise<{ data: Row | null; error: null }> {
     if (this.mode === "insert") throw new Error("maybeSingle() tras insert() no soportado en el fake");
-    const rows = this.matchRows();
+    const rows = this.resolverFilas();
     return { data: rows.length > 0 ? this.project(rows[0]) : null, error: null };
   }
 
@@ -125,7 +148,7 @@ class FakeQueryBuilder {
       table.push(row);
       return { data: this.project(row), error: null };
     }
-    const rows = this.matchRows();
+    const rows = this.resolverFilas();
     return { data: rows.length > 0 ? this.project(rows[0]) : null, error: null };
   }
 
@@ -144,12 +167,7 @@ class FakeQueryBuilder {
       table.push(row);
       return Promise.resolve({ data: [row], error: null }).then(resolve, reject);
     }
-    if (this.mode === "update" && this.updatePatch) {
-      const updated = this.matchRows();
-      for (const row of updated) Object.assign(row, this.updatePatch);
-      return Promise.resolve({ data: updated.map((r) => this.project(r)), error: null }).then(resolve, reject);
-    }
-    const rows = this.matchRows().map((r) => this.project(r));
+    const rows = this.resolverFilas().map((r) => this.project(r));
     return Promise.resolve({ data: rows, error: null }).then(resolve, reject);
   }
 }

@@ -136,6 +136,51 @@ export async function getUserProfile(
   return (data as UserProfile) ?? null;
 }
 
+/** Actualiza el RFC de un usuario (Fase M11).
+ *
+ * NO existe en Python: `accounts.py` dice que "el usuario debe completar su
+ * RFC real desde su perfil", pero ese camino nunca se construyó — el perfil
+ * es de solo lectura y por WhatsApp no hay forma de indicarlo. El resultado
+ * era que toda cuenta creada por teléfono o correo se quedaba con un RFC
+ * sintético (`PEND...`) para siempre, y por tanto TODA factura suya salía
+ * marcada `RFC_AJENO: no será deducible`. Un falso positivo del 100% sobre
+ * la regla más importante del validador.
+ *
+ * El RFC ya debe venir validado y normalizado por `validateRfc()`.
+ */
+export async function updateUserRfc(
+  supabase: SupabaseClient, userId: number, rfc: string,
+): Promise<UserProfile | null> {
+  const { data, error } = await supabase
+    .schema("facturapp").from("users")
+    .update({ rfc })
+    .eq("id", userId)
+    .select(PROFILE_COLS)
+    .maybeSingle();
+  if (error) throw new Error(`Error actualizando RFC: ${error.message}`);
+  return (data as UserProfile) ?? null;
+}
+
+/** ¿Hay OTRO usuario con este RFC?
+ *
+ * `auth-register` ya rechaza RFC duplicados, pero la tabla no tiene
+ * restricción UNIQUE, así que sin esta comprobación el perfil sería una
+ * puerta trasera para crear duplicados. Excluye al propio usuario para que
+ * reguardar el mismo RFC no falle.
+ */
+export async function rfcTomadoPorOtro(
+  supabase: SupabaseClient, userId: number, rfc: string,
+): Promise<boolean> {
+  const { data, error } = await supabase
+    .schema("facturapp").from("users")
+    .select("id")
+    .eq("rfc", rfc)
+    .neq("id", userId)
+    .maybeSingle();
+  if (error) throw new Error(`Error verificando RFC: ${error.message}`);
+  return data !== null;
+}
+
 /** Port 1:1 de `_user_by_token()` en main.py — usado por `/api/public/*`.
  * `web_token` es un identificador de dashboard público, NO un mecanismo de
  * autenticación real (ver nota de seguridad en auth.ts). */
