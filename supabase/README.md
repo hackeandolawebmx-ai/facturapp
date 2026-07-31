@@ -897,6 +897,7 @@ servicios reales** (Meta, OpenAI, Postgres), no solo contra tests:
 | Webhook de SendGrid, `multipart/form-data` (M9) | el formato real de Inbound Parse; resultado **idéntico** al de JSON — mismo UUID, misma categoría, mismos hallazgos. Sin adjuntos → `202 sin_adjuntos` |
 | Verificación de origen de SendGrid (M10) | sin credenciales, con Basic auth incorrecto y con query param incorrecto → `401`; con el secreto correcto por cualquiera de las dos vías → `200` |
 | **Correo real de punta a punta** | factura real enviada por correo a `facturas.<dominio>`, entregada por SendGrid Inbound Parse vía MX, parseada y guardada. Emisor no deducible → `Sin clasificar`, que es el resultado correcto |
+| **Los canales comparten cuenta** | factura ingresada por correo, consultada después por WhatsApp desde el mismo usuario: el bot responde con el monto correcto del año en curso |
 | WhatsApp: comando rápido (`hola`) | mensaje real desde un teléfono; responde sin llamar a OpenAI |
 | WhatsApp: chat conversacional (M4b) | mensaje real; `tools_used: [get_summary]`, leyendo de Postgres |
 | WhatsApp: ingesta de factura | XML real como adjunto; descargado de la Graph API, parseado, validado, clasificado y guardado |
@@ -982,6 +983,32 @@ números registrados explícitamente como destinatarios (máximo 5).
   `whatsapp_token` vs. `.env` con `WHATSAPP_ACCESS_TOKEN`; falta
   `WHATSAPP_APP_SECRET`) — fuera del alcance de esta migración, pero valen
   la pena si el webhook en Railway no responde como se espera.
+
+### El modelo no sabía en qué fecha vive
+
+Encontrado usando el sistema, no depurándolo. A la pregunta "¿cuánto llevo
+este año?" el asistente consultó **2023** y respondió que no había
+deducciones registradas. El `SYSTEM_PROMPT` nunca decía la fecha, así que el
+modelo resolvía las expresiones relativas adivinando a partir de sus datos
+de entrenamiento.
+
+En una app fiscal eso es peor que un error visible: la respuesta parece
+legítima, así que el usuario concluye que no tiene deducciones cuando sí las
+tiene. Un error que se ve se investiga; una cifra falsa bien formateada se
+cree.
+
+Corregido en `buildSystemPrompt()` (chat.ts), que inyecta la fecha y prohíbe
+explícitamente suponerla. La fecha se calcula en `America/Mexico_City` y no
+en la del servidor: las Edge Functions corren en UTC, y entre las 18:00 y la
+medianoche del 31 de diciembre en México ya es 1 de enero en UTC — el
+momento exacto en que equivocar el ejercicio fiscal sale más caro. Hay un
+test sobre esa frontera.
+
+**Pendiente relacionado:** `YEAR_DEFAULT` sigue fijo en 2026. Hoy coincide
+con el año en curso, pero en 2027 no. No se cambió a "año actual" porque no
+es una decisión técnica: entre enero y abril la gente trabaja sobre la
+declaración del año *anterior*, así que el año en curso no es obviamente el
+default correcto.
 
 ### Límite conocido de la suite de tests
 
