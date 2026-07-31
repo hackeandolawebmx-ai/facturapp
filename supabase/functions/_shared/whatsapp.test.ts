@@ -177,3 +177,32 @@ Deno.test("whatsappReplyText: estatus desconocido usa el mensaje por defecto", (
   const msg = whatsappReplyText({ estatus: undefined, hallazgos: [] });
   assertEquals(msg, "Recibimos tu mensaje, pero no encontramos ninguna factura válida.");
 });
+
+// ---- archivada (Fase M14 — persona moral) -----------------------------------
+//
+// Encontrado en producción: sin esta rama, una factura de empresa que se
+// archivó CORRECTAMENTE recibía el mensaje por defecto de "no encontramos
+// ninguna factura válida" — falso, porque sí se encontró y sí se guardó.
+
+Deno.test("whatsappReplyText: archivada (persona moral) NO cae en el mensaje por defecto", () => {
+  const msg = whatsappReplyText({
+    estatus: "archivada",
+    hallazgos: [{
+      mensaje: "Archivada para tu empresa. No evaluamos deducibilidad de personas morales.",
+    }],
+  });
+  assertEquals(
+    msg,
+    "📁 Archivada para tu empresa. No evaluamos deducibilidad de personas morales.",
+  );
+});
+
+Deno.test("whatsappReplyText: archivada reutiliza el mensaje del hallazgo, no uno propio", () => {
+  // Misma fuente de verdad que advertencia/rechazada: el texto vive en
+  // archivarSinEvaluar() (invoices.ts), no duplicado aquí.
+  const msg = whatsappReplyText({
+    estatus: "archivada",
+    hallazgos: [{ mensaje: "texto de prueba distintivo" }],
+  });
+  assertEquals(msg, "📁 texto de prueba distintivo");
+});

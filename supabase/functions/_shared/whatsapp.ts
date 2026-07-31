@@ -240,7 +240,22 @@ export interface IngestResultLike {
   hallazgos?: Array<{ mensaje: string }>;
 }
 
-/** Port 1:1 de _whatsapp_reply_text() en main.py — mismo mapeo exacto. */
+/** Port de _whatsapp_reply_text() en main.py, con una rama que Python no
+ * tiene: `archivada` (Fase M14, facturas de persona moral).
+ *
+ * Sin esa rama, una factura de empresa que se archivó CORRECTAMENTE caía en
+ * el mensaje por defecto — "no encontramos ninguna factura válida" — que es
+ * falso: sí se encontró y sí se guardó, solo que sin evaluar deducibilidad.
+ * Se detectó en producción real: un usuario reenvió la factura de su
+ * empresa tras registrar el RFC como moral, y recibió ese mensaje de
+ * fracaso pese a que la ingesta había tenido éxito.
+ *
+ * Reutiliza el mensaje del propio hallazgo (`primerMensaje`) en vez de
+ * escribir uno nuevo aquí, igual que las ramas `advertencia`/`rechazada`:
+ * una sola fuente de verdad para el texto, en `archivarSinEvaluar()`
+ * (invoices.ts), en vez de dos redacciones que puedan divergir con el
+ * tiempo.
+ */
 export function whatsappReplyText(body: IngestResultLike): string {
   const estatus = body.estatus;
   const hallazgos = body.hallazgos ?? [];
@@ -257,6 +272,9 @@ export function whatsappReplyText(body: IngestResultLike): string {
   }
   if (estatus === "por_revisar") {
     return "📄 Recibimos tu PDF, pero necesitamos el XML para poder deducir esta factura.";
+  }
+  if (estatus === "archivada") {
+    return `📁 ${primerMensaje}`;
   }
   return "Recibimos tu mensaje, pero no encontramos ninguna factura válida.";
 }
