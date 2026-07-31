@@ -56,18 +56,35 @@
   .acceso-ancho{max-width:560px}
   .subtitulo{font-family:'IBM Plex Serif',serif;font-size:1rem;margin:1.6rem 0 .8rem;
              padding-top:1.2rem;border-top:1px solid var(--regla)}
-  .tabla-rfcs{width:100%;border-collapse:collapse;font-size:.85rem}
+  /* overflow-x:auto es la red de seguridad: si a pesar de los anchos fijos
+     algo no cabe (RFC + alias largos en pantallas angostas), la tabla hace
+     scroll horizontal DENTRO de la tarjeta en vez de desbordarse sobre el
+     fondo gris de la página — mismo patrón que .archivo más abajo. */
+  .tabla-rfcs-wrap{overflow-x:auto}
+  /* table-layout:fixed es lo que evita el desborde en el caso normal: sin
+     esto, un alias largo ("Distribuidora Arca Continental") hace que el
+     navegador ensanche la columna Nombre para no partir el texto, y la
+     tabla completa termina más ancha que la tarjeta que la contiene — el
+     botón "Quitar" de esa fila queda flotando fuera de la tarjeta, sobre el
+     fondo gris. Con ancho fijo por columna, el texto envuelve en su lugar. */
+  .tabla-rfcs{width:100%;border-collapse:collapse;font-size:.85rem;table-layout:fixed}
   .tabla-rfcs th{text-align:left;font-size:.7rem;text-transform:uppercase;
                  letter-spacing:.06em;color:var(--tinta-suave);font-weight:600;
-                 padding:.4rem 0;border-bottom:1px solid var(--regla)}
-  .tabla-rfcs td{padding:.6rem 0;border-bottom:1px dotted var(--regla);vertical-align:middle}
+                 padding:.4rem .4rem .4rem 0;border-bottom:1px solid var(--regla)}
+  .tabla-rfcs td{padding:.6rem .4rem .6rem 0;border-bottom:1px dotted var(--regla);
+                 vertical-align:middle;word-break:break-word}
+  .tabla-rfcs th:nth-child(1), .tabla-rfcs td:nth-child(1){width:29%}
+  .tabla-rfcs th:nth-child(2), .tabla-rfcs td:nth-child(2){width:17%}
+  .tabla-rfcs th:nth-child(3), .tabla-rfcs td:nth-child(3){width:34%}
+  .tabla-rfcs th:nth-child(4), .tabla-rfcs td:nth-child(4){width:20%;padding-right:0}
   .tabla-rfcs td:first-child{font-family:'IBM Plex Mono',monospace;font-size:.82rem}
   .tabla-rfcs td:last-child{text-align:right}
-  .etiqueta-tipo{font-size:.72rem;font-weight:600;padding:.15rem .5rem;border-radius:99px}
+  .etiqueta-tipo{display:inline-block;white-space:nowrap;font-size:.72rem;font-weight:600;
+                 padding:.15rem .5rem;border-radius:99px}
   .etiqueta-tipo.fisica{background:var(--sello-fondo);color:var(--sello)}
   .etiqueta-tipo.moral{background:#EFE9F5;color:#4C3570}
   .marca-principal{font-size:.7rem;color:var(--tinta-suave);display:block}
-  .btn-quitar{background:none;border:1px solid var(--regla);border-radius:4px;
+  .btn-quitar{white-space:nowrap;background:none;border:1px solid var(--regla);border-radius:4px;
               padding:.2rem .55rem;font-size:.72rem;color:var(--guinda)}
   .btn-quitar:hover{border-color:var(--guinda)}
   .ayuda{font-size:.76rem;color:var(--tinta-suave);margin-top:.35rem;line-height:1.45}
@@ -210,12 +227,14 @@
   </p>
   <div id="error-rfcs" class="error" hidden></div>
 
-  <table class="tabla-rfcs">
-    <thead>
-      <tr><th>RFC</th><th>Tipo</th><th>Nombre</th><th></th></tr>
-    </thead>
-    <tbody id="tbody-rfcs"></tbody>
-  </table>
+  <div class="tabla-rfcs-wrap">
+    <table class="tabla-rfcs">
+      <thead>
+        <tr><th>RFC</th><th>Tipo</th><th>Nombre</th><th></th></tr>
+      </thead>
+      <tbody id="tbody-rfcs"></tbody>
+    </table>
+  </div>
 
   <h2 class="subtitulo">Agregar otro</h2>
   <form id="form-rfc">
