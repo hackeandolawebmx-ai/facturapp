@@ -892,6 +892,7 @@ servicios reales** (Meta, OpenAI, Postgres), no solo contra tests:
 | Webhook de SendGrid, JSON | XML real en base64; decodificado, clasificado y guardado |
 | Webhook de SendGrid, `multipart/form-data` (M9) | el formato real de Inbound Parse; resultado **idéntico** al de JSON — mismo UUID, misma categoría, mismos hallazgos. Sin adjuntos → `202 sin_adjuntos` |
 | Verificación de origen de SendGrid (M10) | sin credenciales, con Basic auth incorrecto y con query param incorrecto → `401`; con el secreto correcto por cualquiera de las dos vías → `200` |
+| **Correo real de punta a punta** | factura real enviada por correo a `facturas.<dominio>`, entregada por SendGrid Inbound Parse vía MX, parseada y guardada. Emisor no deducible → `Sin clasificar`, que es el resultado correcto |
 | WhatsApp: comando rápido (`hola`) | mensaje real desde un teléfono; responde sin llamar a OpenAI |
 | WhatsApp: chat conversacional (M4b) | mensaje real; `tools_used: [get_summary]`, leyendo de Postgres |
 | WhatsApp: ingesta de factura | XML real como adjunto; descargado de la Graph API, parseado, validado, clasificado y guardado |
@@ -944,11 +945,11 @@ números registrados explícitamente como destinatarios (máximo 5).
 
 - ❌ **`/health`, `/privacy`, `/a/{token}` (páginas HTML)** — son páginas,
   no API; fuera del alcance de esta migración.
-- ⚠️ **El webhook de SendGrid entiende el formato correcto, pero todavía no
-  ha recibido un correo enviado por SendGrid.** Se verificó construyendo el
-  `multipart/form-data` a mano con la misma estructura que manda Inbound
-  Parse. Falta configurar el dominio y el MX en SendGrid y mandarse un
-  correo real — eso ya es configuración de infraestructura, no código.
+- ⚠️ **El canal de correo funciona, pero el dominio configurado es de
+  prueba.** Al mover el sistema a su dominio definitivo hay que cambiar el
+  registro MX y el *Receiving Domain* en Inbound Parse. El código no se
+  toca, y como el subdominio es independiente, ambos pueden convivir
+  durante la transición.
 - ⚠️ **La verificación de origen de SendGrid autentica el ORIGEN, no el
   CONTENIDO.** Inbound Parse no firma sus peticiones (a diferencia de Meta),
   así que quien tenga el secreto puede enviar el correo que quiera. Es
