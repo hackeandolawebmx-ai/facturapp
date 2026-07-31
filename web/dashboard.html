@@ -52,6 +52,35 @@
   .fila-rfc input{flex:1;min-width:180px;border:1px solid var(--regla);background:var(--blanco);border-radius:4px;padding:.45rem .7rem;font-family:'IBM Plex Mono',monospace;font-size:.85rem;text-transform:uppercase}
   .fila-rfc button{background:var(--tinta);color:var(--papel);border:none;border-radius:4px;padding:.45rem 1rem;font-weight:600;font-size:.82rem}
 
+  /* ---------- Contribuyentes ---------- */
+  .acceso-ancho{max-width:560px}
+  .subtitulo{font-family:'IBM Plex Serif',serif;font-size:1rem;margin:1.6rem 0 .8rem;
+             padding-top:1.2rem;border-top:1px solid var(--regla)}
+  .tabla-rfcs{width:100%;border-collapse:collapse;font-size:.85rem}
+  .tabla-rfcs th{text-align:left;font-size:.7rem;text-transform:uppercase;
+                 letter-spacing:.06em;color:var(--tinta-suave);font-weight:600;
+                 padding:.4rem 0;border-bottom:1px solid var(--regla)}
+  .tabla-rfcs td{padding:.6rem 0;border-bottom:1px dotted var(--regla);vertical-align:middle}
+  .tabla-rfcs td:first-child{font-family:'IBM Plex Mono',monospace;font-size:.82rem}
+  .tabla-rfcs td:last-child{text-align:right}
+  .etiqueta-tipo{font-size:.72rem;font-weight:600;padding:.15rem .5rem;border-radius:99px}
+  .etiqueta-tipo.fisica{background:var(--sello-fondo);color:var(--sello)}
+  .etiqueta-tipo.moral{background:#EFE9F5;color:#4C3570}
+  .marca-principal{font-size:.7rem;color:var(--tinta-suave);display:block}
+  .btn-quitar{background:none;border:1px solid var(--regla);border-radius:4px;
+              padding:.2rem .55rem;font-size:.72rem;color:var(--guinda)}
+  .btn-quitar:hover{border-color:var(--guinda)}
+  .ayuda{font-size:.76rem;color:var(--tinta-suave);margin-top:.35rem;line-height:1.45}
+
+  /* ---------- Aviso de persona moral ---------- */
+  .aviso-moral{background:#F3F0F7;border:1px solid #DCD3E8;border-left:4px solid #4C3570;
+               border-radius:0 6px 6px 0;padding:1.1rem 1.3rem;margin-bottom:2rem}
+  .aviso-moral h2{font-family:'IBM Plex Serif',serif;font-size:1.15rem;color:#4C3570;
+                  margin-bottom:.4rem}
+  .aviso-moral p{font-size:.85rem;color:var(--tinta-suave)}
+  .aviso-moral-total{font-family:'IBM Plex Mono',monospace;font-size:.9rem;
+                     color:var(--tinta);margin-top:.7rem}
+
   /* ---------- Cédula ---------- */
   .cedula{background:var(--blanco);border:1px solid var(--regla);border-radius:6px;box-shadow:var(--sombra);margin-bottom:2rem;overflow:hidden}
   .cedula-encabezado{display:flex;align-items:baseline;justify-content:space-between;gap:1rem;padding:1.1rem 1.5rem .6rem;flex-wrap:wrap}
@@ -100,6 +129,8 @@
   .estatus.advertencia::before{background:var(--guinda)}
   .estatus.revisar{background:var(--ambar-fondo);color:var(--ambar)}
   .estatus.revisar::before{background:var(--ambar)}
+  .estatus.archivada{background:#F3F0F7;color:#4C3570}
+  .estatus.archivada::before{background:#4C3570}
 
   .acciones{white-space:nowrap}
   .btn-archivo{font-family:'IBM Plex Mono',monospace;font-size:.75rem;font-weight:500;
@@ -170,6 +201,50 @@
   </form>
 </section>
 
+<!-- ---------------- Contribuyentes (RFCs de la cuenta) --------------------- -->
+<section id="pantalla-rfcs" class="acceso acceso-ancho" hidden>
+  <h1>Contribuyentes</h1>
+  <p class="sub">
+    Una persona física tiene un solo RFC, así que varios aquí significan que
+    administras las deducciones de más de un contribuyente.
+  </p>
+  <div id="error-rfcs" class="error" hidden></div>
+
+  <table class="tabla-rfcs">
+    <thead>
+      <tr><th>RFC</th><th>Tipo</th><th>Nombre</th><th></th></tr>
+    </thead>
+    <tbody id="tbody-rfcs"></tbody>
+  </table>
+
+  <h2 class="subtitulo">Agregar otro</h2>
+  <form id="form-rfc">
+    <div class="campo">
+      <label for="nuevo-rfc">RFC</label>
+      <input type="text" id="nuevo-rfc" maxlength="13" placeholder="AAAA000000XXX"
+             autocapitalize="characters" spellcheck="false" required>
+    </div>
+    <div class="campo">
+      <label for="nuevo-tipo">Tipo de contribuyente</label>
+      <select id="nuevo-tipo" class="filtro" style="width:100%">
+        <option value="fisica">Persona física</option>
+        <option value="moral">Persona moral (empresa)</option>
+      </select>
+      <!-- El tipo no es un dato descriptivo: decide si a sus facturas se les
+           aplican las reglas de deducción personal. Se explica aquí porque
+           elegir mal produce resultados equivocados, no solo una etiqueta. -->
+      <p class="ayuda" id="ayuda-tipo"></p>
+    </div>
+    <div class="campo">
+      <label for="nuevo-alias">Nombre (opcional)</label>
+      <input type="text" id="nuevo-alias" maxlength="60" placeholder="Mi empresa">
+    </div>
+    <button type="submit" class="btn-principal" id="btn-agregar-rfc">Agregar</button>
+    <button type="button" class="btn-plano" id="btn-cerrar-rfcs"
+            style="width:100%;margin-top:.6rem;padding:.5rem">Volver</button>
+  </form>
+</section>
+
 <!-- ---------------- Cambiar contraseña (ya autenticado) -------------------- -->
 <section id="pantalla-cambio" class="acceso" hidden>
   <h1>Cambiar contraseña</h1>
@@ -196,8 +271,14 @@
   <header class="topbar">
     <div class="marca">Facturas<span>MX</span></div>
     <select class="selector-anio" id="selector-anio" aria-label="Ejercicio fiscal"></select>
+    <!-- Solo aparece cuando hay más de un contribuyente en la cuenta. No hay
+         opción "todos" a propósito: sumar las deducciones de dos personas en
+         una misma cédula sería atribuirle a alguien deducciones ajenas. -->
+    <select class="selector-anio" id="selector-rfc"
+            aria-label="Contribuyente" hidden></select>
     <div class="identidad">
       <span class="rfc-actual" id="rfc-actual"></span>
+      <button class="btn-plano" id="btn-contribuyentes">Contribuyentes</button>
       <button class="btn-plano" id="btn-cambiar-password">Contraseña</button>
       <button class="btn-plano" id="btn-salir">Salir</button>
     </div>
@@ -221,7 +302,21 @@
       </div>
     </section>
 
-    <section class="cedula" aria-label="Cédula de deducciones">
+    <!-- Aviso para RFCs de persona moral. Sustituye a la cédula: presentar
+         una "cédula de deducciones" a una empresa daría a entender que estos
+         montos son deducibles según reglas que este sistema no evalúa. -->
+    <section class="aviso-moral" id="aviso-moral" hidden>
+      <h2 id="aviso-moral-titulo">Facturas de tu empresa</h2>
+      <p>
+        Aquí se archivan y puedes descargarlas, pero <strong>no evaluamos su
+        deducibilidad</strong>: las reglas de personas morales (Art. 25 LISR)
+        son distintas a las de deducciones personales, que es lo único que
+        este sistema valida. No las clasificamos ni las damos por deducibles.
+      </p>
+      <p class="aviso-moral-total" id="aviso-moral-total"></p>
+    </section>
+
+    <section class="cedula" id="seccion-cedula" aria-label="Cédula de deducciones">
       <div class="cedula-encabezado">
         <h1 class="cedula-titulo" id="cedula-titulo">Cédula de deducciones</h1>
         <p class="cedula-nota" id="cedula-nota">Cargando…</p>
@@ -278,7 +373,10 @@
   var CHIP = { "Médicos": "medicos", "Colegiaturas": "colegiaturas",
                "Seguros GMM": "seguros", "Hipoteca": "hipoteca" };
   var ESTATUS = { "valida": ["valida", "Válida"], "advertencia": ["advertencia", "Advertencia"],
-                  "por_revisar": ["revisar", "Por revisar"], "rechazada": ["revisar", "Rechazada"] };
+                  "por_revisar": ["revisar", "Por revisar"], "rechazada": ["revisar", "Rechazada"],
+                  // `archivada` no es un grado de problema: es "fuera del
+                  // alcance de lo que evaluamos" (facturas de persona moral).
+                  "archivada": ["archivada", "Archivada"] };
   var MESES = ["ENE","FEB","MAR","ABR","MAY","JUN","JUL","AGO","SEP","OCT","NOV","DIC"];
   var MESES_LARGOS = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio",
                       "Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
@@ -290,7 +388,14 @@
   // contraseña y por tanto no pueden iniciar sesión.
   var webTokenDeLaUrl = new URLSearchParams(location.search).get("token");
 
-  var PANTALLAS = ["pantalla-acceso", "pantalla-alta", "pantalla-cambio", "pantalla-datos"];
+  var PANTALLAS = ["pantalla-acceso", "pantalla-alta", "pantalla-cambio",
+                   "pantalla-rfcs", "pantalla-datos"];
+
+  // RFCs de la cuenta y cuál se está viendo. `rfcActivo` es null cuando la
+  // cuenta tiene uno solo (o ninguno): en ese caso no se filtra, que es el
+  // comportamiento anterior y es correcto.
+  var rfcs = [];
+  var rfcActivo = null;
 
   function $(id) { return document.getElementById(id); }
 
@@ -464,6 +569,7 @@
     prepararSelectorAnio();
     prepararSelectorMes();
     await cargarPerfil();
+    await cargarRfcs();
     await cargarDatos();
   }
 
@@ -534,13 +640,158 @@
       "ya estaban archivadas conservan la advertencia anterior.");
   });
 
+  // ---- Contribuyentes -----------------------------------------------------
+
+  function rfcActivoEsMoral() {
+    var actual = rfcs.find(function (r) { return r.rfc === rfcActivo; });
+    return Boolean(actual && actual.tipo === "moral");
+  }
+
+  function etiquetaRfc(r) {
+    return (r.alias ? r.alias + " · " : "") + r.rfc;
+  }
+
+  async function cargarRfcs() {
+    var resp = await pedir("/api-user-rfcs");
+    if (!resp || !resp.ok) return;
+    rfcs = (await resp.json()).rfcs || [];
+
+    var sel = $("selector-rfc");
+    // Con un solo contribuyente el selector no aporta nada y sí estorba.
+    if (rfcs.length < 2) {
+      sel.hidden = true;
+      rfcActivo = null;
+      return;
+    }
+    var previo = rfcActivo;
+    sel.innerHTML = "";
+    rfcs.forEach(function (r) {
+      var o = document.createElement("option");
+      o.value = r.rfc;
+      o.textContent = etiquetaRfc(r);
+      sel.appendChild(o);
+    });
+    // Se mantiene la selección si sigue existiendo; si no, el principal.
+    rfcActivo = rfcs.some(function (r) { return r.rfc === previo; })
+      ? previo
+      : (rfcs.find(function (r) { return r.es_principal; }) || rfcs[0]).rfc;
+    sel.value = rfcActivo;
+    sel.hidden = false;
+  }
+
+  $("selector-rfc").addEventListener("change", function () {
+    rfcActivo = $("selector-rfc").value;
+    cargarDatos();
+  });
+
+  $("btn-contribuyentes").addEventListener("click", function () {
+    mostrarError("error-rfcs", "");
+    pintarTablaRfcs();
+    actualizarAyudaTipo();
+    mostrarSolo("pantalla-rfcs");
+  });
+
+  $("btn-cerrar-rfcs").addEventListener("click", function () {
+    mostrarSolo("pantalla-datos");
+  });
+
+  function pintarTablaRfcs() {
+    var tb = $("tbody-rfcs");
+    if (!rfcs.length) {
+      tb.innerHTML = '<tr><td colspan="4">Todavía no has dado de alta ningún RFC.</td></tr>';
+      return;
+    }
+    tb.innerHTML = rfcs.map(function (r) {
+      return '<tr>' +
+        '<td>' + escapeHtml(r.rfc) +
+          (r.es_principal ? '<span class="marca-principal">Principal</span>' : '') + '</td>' +
+        '<td><span class="etiqueta-tipo ' + r.tipo + '">' +
+          (r.tipo === "moral" ? "Moral" : "Física") + '</span></td>' +
+        '<td>' + escapeHtml(r.alias || "—") + '</td>' +
+        '<td>' + (r.es_principal
+          ? ''
+          : '<button class="btn-quitar" data-id="' + r.id + '">Quitar</button>') + '</td>' +
+      '</tr>';
+    }).join("");
+  }
+
+  // El tipo decide si a las facturas se les aplican las reglas de deducción
+  // personal, así que se explica al elegirlo y no después.
+  function actualizarAyudaTipo() {
+    var esMoral = $("nuevo-tipo").value === "moral";
+    $("ayuda-tipo").textContent = esMoral
+      ? "Sus facturas se archivan y podrás descargarlas, pero no las " +
+        "clasificamos ni evaluamos su deducibilidad: las reglas de personas " +
+        "morales son distintas a las de deducciones personales."
+      : "Sus facturas se clasifican (médicos, colegiaturas, seguros, " +
+        "hipoteca) y se validan contra las reglas de deducciones personales.";
+  }
+  $("nuevo-tipo").addEventListener("change", actualizarAyudaTipo);
+
+  $("form-rfc").addEventListener("submit", async function (ev) {
+    ev.preventDefault();
+    mostrarError("error-rfcs", "");
+    var btn = $("btn-agregar-rfc");
+    btn.disabled = true;
+    try {
+      var resp = await pedir("/api-user-rfcs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          rfc: $("nuevo-rfc").value.trim().toUpperCase(),
+          tipo: $("nuevo-tipo").value,
+          alias: $("nuevo-alias").value.trim()
+        })
+      });
+      if (!resp) return;
+      var cuerpo = await resp.json();
+      if (!resp.ok) {
+        mostrarError("error-rfcs", cuerpo.detail || "No se pudo agregar el RFC.");
+        return;
+      }
+      $("form-rfc").reset();
+      actualizarAyudaTipo();
+      await cargarRfcs();
+      pintarTablaRfcs();
+    } catch (e) {
+      mostrarError("error-rfcs", "No se pudo conectar con el servidor.");
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  $("tbody-rfcs").addEventListener("click", async function (ev) {
+    var btn = ev.target.closest(".btn-quitar");
+    if (!btn) return;
+    // Se advierte que es solo de la vista: borrar comprobantes fiscales por
+    // quitar una etiqueta sería destructivo y no es lo que hace.
+    if (!confirm("¿Quitar este RFC de tu cuenta?\n\nSus facturas NO se borran: " +
+                 "se conservan archivadas.")) return;
+
+    mostrarError("error-rfcs", "");
+    var resp = await pedir("/api-user-rfcs?id=" + encodeURIComponent(btn.dataset.id),
+                           { method: "DELETE" });
+    if (!resp) return;
+    var cuerpo = await resp.json();
+    if (!resp.ok) {
+      mostrarError("error-rfcs", cuerpo.detail || "No se pudo quitar el RFC.");
+      return;
+    }
+    await cargarRfcs();
+    pintarTablaRfcs();
+  });
+
   async function cargarDatos() {
     mostrarError("error-datos", "");
     $("cedula-nota").textContent = "Cargando…";
     $("cedula-titulo").textContent = "Cédula de deducciones · " + anio;
+
+    // El filtro por RFC es lo que impide que la cédula sume las deducciones
+    // de dos contribuyentes distintos.
+    var filtroRfc = rfcActivo ? "&rfc=" + encodeURIComponent(rfcActivo) : "";
     try {
-      var respS = await pedir("/api-summary?year=" + anio);
-      var respF = await pedir("/api-invoices?year=" + anio);
+      var respS = await pedir("/api-summary?year=" + anio + filtroRfc);
+      var respF = await pedir("/api-invoices?year=" + anio + filtroRfc);
       if (!respS || !respF) return;
       if (!respS.ok || !respF.ok) {
         mostrarError("error-datos", "No se pudieron cargar tus datos.");
@@ -550,13 +801,35 @@
       var resumen = await respS.json();
       var datos = await respF.json();
       facturas = datos.invoices || [];
-      pintarCedula(resumen);
+      pintarResumen(resumen);
       poblarCategorias();
       aplicarFiltros();
     } catch (e) {
       mostrarError("error-datos", "No se pudo conectar con el servidor.");
       $("cedula-nota").textContent = "";
     }
+  }
+
+  /** Elige entre cédula de deducciones y aviso de persona moral.
+   *
+   * Presentarle una "cédula de deducciones" a una empresa daría a entender
+   * que esos montos son deducibles bajo reglas que este sistema no evalúa.
+   * Para una moral se muestra el total archivado y se dice explícitamente
+   * que no hay juicio de deducibilidad. */
+  function pintarResumen(s) {
+    if (rfcActivoEsMoral()) {
+      $("seccion-cedula").hidden = true;
+      $("aviso-moral").hidden = false;
+      var n = s.num_facturas || 0;
+      $("aviso-moral-titulo").textContent = "Facturas de tu empresa · " + anio;
+      $("aviso-moral-total").textContent =
+        n + " factura" + (n === 1 ? "" : "s") + " archivada" + (n === 1 ? "" : "s") +
+        " · " + money(s.total_general) + " en total facturado";
+      return;
+    }
+    $("aviso-moral").hidden = true;
+    $("seccion-cedula").hidden = false;
+    pintarCedula(s);
   }
 
   function pintarCedula(s) {
