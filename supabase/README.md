@@ -1,9 +1,13 @@
 # FacturasMX — Migración a Supabase (Fase M7)
 
 Migración de `facturapp` de Railway/FastAPI/SQLite → Supabase Edge
-Functions/TypeScript/PostgreSQL. **El proyecto Python en `facturapp/` sigue
-corriendo en Railway sin cambios** — esta migración avanza en paralelo hasta
-que esté completa y validada; no reemplaza nada todavía.
+Functions/TypeScript/PostgreSQL.
+
+**La migración está completa y Railway fue eliminado.** Supabase atiende
+todo el tráfico: WhatsApp, la API REST y el correo entrante. El código
+Python en `facturapp/` se conserva en el repositorio como referencia del
+comportamiento original —es contra lo que se contrastó cada port— pero ya
+no corre en ningún lado.
 
 ## Estado de la migración
 
@@ -965,11 +969,15 @@ números registrados explícitamente como destinatarios (máximo 5).
   Ver "Por qué no hubo migración de datos" más abajo.
 - ❌ **Sin respuesta por email en SendGrid** (fuera de alcance de v1, igual
   que en `ingest_email_sendgrid()` — Python tampoco responde por correo).
-- ⚠️ **El corte de WhatsApp ya ocurrió de hecho, aunque Railway siga
-  encendido.** El Callback URL de Meta apunta a
-  `.../functions/v1/whatsapp-webhook` y la WABA está suscrita a FactuApp,
-  así que todo el tráfico de WhatsApp llega a Supabase y Railway recibe
-  cero. Apagar el proyecto Python es ya un trámite, no una migración.
+- ⚠️ **Ya no hay fallback.** Railway fue eliminado, así que Supabase es el
+  único sistema en producción. Si algo se rompe, se arregla hacia adelante;
+  no hay a dónde volver. El código Python sigue en git, pero volver a
+  levantarlo implicaría redesplegar y reapuntar el webhook de Meta.
+- ⚠️ **Un usuario que use WhatsApp y correo tendrá dos cuentas separadas.**
+  Las cuentas se crean por teléfono o por correo según el canal, y nada las
+  vincula aunque compartan RFC — el resumen anual saldría partido en dos.
+  Viene del diseño original de Python, pero solo se vuelve visible ahora que
+  ambos canales funcionan de verdad.
 - ❌ **No se corrigieron los hallazgos del lado Python** (campo
   `whatsapp_token` vs. `.env` con `WHATSAPP_ACCESS_TOKEN`; falta
   `WHATSAPP_APP_SECRET`) — fuera del alcance de esta migración, pero valen
