@@ -9,8 +9,11 @@
 import type { SupabaseClient } from "jsr:@supabase/supabase-js@2";
 import { classifyInvoice } from "./classifier.ts";
 import { CFDIParseError, parseCfdi } from "./parser.ts";
-import { SEV_POR_REVISAR, SEV_RECHAZADA, ValidationEngine } from "./validator.ts";
+import {
+  SEV_ARCHIVADA, type Hallazgo, SEV_POR_REVISAR, SEV_RECHAZADA, ValidationEngine,
+} from "./validator.ts";
 import type { AppUser } from "./users.ts";
+import { listarRfcs, rfcQueRecibe } from "./rfcs.ts";
 
 /** Port de `_anio_de()` en main.py: primeros 4 dígitos de fecha_emision. */
 export function anioDeFecha(fechaEmision: string): number {
@@ -56,6 +59,42 @@ async function getFechaPrevia(
     .maybeSingle();
   if (error) throw new Error(`Error consultando factura previa: ${error.message}`);
   return data ? (data.fecha_emision as string) : null;
+}
+
+/** Resultado para una factura dirigida a un RFC de persona moral (Fase M14).
+ *
+ * Se archiva sin clasificar ni evaluar deducibilidad. NO es una degradación
+ * silenciosa: el hallazgo lo dice explícitamente, para que nadie interprete
+ * la ausencia de advertencias como "todo en orden" ni la falta de categoría
+ * como un fallo del clasificador.
+ *
+ * El anti-duplicado sí se aplica: no depende del régimen fiscal y evita
+ * guardar dos veces el mismo comprobante.
+ */
+function archivarSinEvaluar(
+  invoice: { uuid: string }, existingUuids: string[],
+): { status: string; categoria?: string; hallazgos: Hallazgo[] } {
+  if (existingUuids.includes(invoice.uuid)) {
+    return {
+      status: SEV_RECHAZADA,
+      hallazgos: [{
+        codigo: "UUID_DUPLICADO",
+        severidad: SEV_RECHAZADA,
+        mensaje: "Ya tenías registrada esta factura",
+      }],
+    };
+  }
+  return {
+    status: SEV_ARCHIVADA,
+    categoria: undefined,
+    hallazgos: [{
+      codigo: "PERSONA_MORAL",
+      severidad: SEV_ARCHIVADA,
+      mensaje:
+        "Archivada para tu empresa. No evaluamos deducibilidad de personas " +
+        "morales: sus reglas son distintas a las de deducciones personales.",
+    }],
+  };
 }
 
 /** Parsea, valida, clasifica y guarda un CFDI para `user`. Devuelve el mismo
@@ -107,9 +146,24 @@ export async function ingestInvoice(
   const existingUuids = await getExistingUuids(supabase, user.id);
   const fechaPrevia = await getFechaPrevia(supabase, user.id, invoice.uuid);
 
-  const engine = new ValidationEngine(user.rfc, existingUuids);
-  const resultado = engine.validate(invoice, fechaPrevia);
-  const { confianza } = classifyInvoice(invoice);
+  // ¿A cuál de los RFCs de la cuenta viene dirigida? (Fase M14)
+  //
+  // De esto depende CÓMO se evalúa, no solo a quién se le atribuye: el
+  // clasificador y el validador implementan deducciones personales, así que
+  // aplicarlos a una factura de persona moral produciría juicios falsos —
+  // marcaría como incorrecto el uso G03, que es el correcto para una empresa.
+  const rfcsDeLaCuenta = await listarRfcs(supabase, user.id);
+  const rfcReceptor = rfcQueRecibe(rfcsDeLaCuenta, invoice.receptor_rfc ?? "");
+
+  // Sin RFCs dados de alta (cuenta recién creada, RFC todavía `PEND...`) se
+  // conserva el comportamiento anterior: validar contra el RFC del usuario.
+  const rfcParaValidar = rfcReceptor?.rfc ?? user.rfc;
+  const esMoral = rfcReceptor?.tipo === "moral";
+
+  const resultado = esMoral
+    ? archivarSinEvaluar(invoice, existingUuids)
+    : new ValidationEngine(rfcParaValidar, existingUuids).validate(invoice, fechaPrevia);
+  const { confianza } = esMoral ? { confianza: 0 } : classifyInvoice(invoice);
 
   // El id de la fila insertada se devuelve para poder asociarle después el
   // PDF (Fase M13). Es `undefined` cuando la factura se rechaza y no se
@@ -123,7 +177,9 @@ export async function ingestInvoice(
       .insert({
         user_id: user.id,
         uuid_fiscal: invoice.uuid,
-        usuario_rfc: user.rfc,
+        // El RFC al que se atribuye, no el principal de la cuenta: es lo que
+        // permite que el resumen no mezcle contribuyentes (Fase M14).
+        usuario_rfc: rfcParaValidar,
         emisor_rfc: invoice.emisor_rfc,
         emisor_nombre: invoice.emisor_nombre,
         receptor_rfc: invoice.receptor_rfc,

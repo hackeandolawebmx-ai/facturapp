@@ -29,8 +29,9 @@ async function handleGet(req: Request, userId: number, supabase: unknown): Promi
   const url = new URL(req.url);
   const yearParam = url.searchParams.get("year");
   const year = yearParam ? parseInt(yearParam, 10) : 2026;
+  const rfc = url.searchParams.get("rfc") ?? undefined;
   // deno-lint-ignore no-explicit-any
-  const result = await listInvoicesForUser(supabase as any, userId, year);
+  const result = await listInvoicesForUser(supabase as any, userId, year, rfc);
   return jsonResponse(result, 200);
 }
 

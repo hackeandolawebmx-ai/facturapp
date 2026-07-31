@@ -32,7 +32,10 @@ async function handleGet(req: Request): Promise<Response> {
   const yearParam = url.searchParams.get("year");
   const year = yearParam ? parseInt(yearParam, 10) : 2026;
 
-  const result = await summaryForUser(supabase, authUser.id, year);
+  // Con varios RFCs en la cuenta, sin este filtro el total sumaría las
+  // deducciones de contribuyentes distintos (Fase M14).
+  const rfc = url.searchParams.get("rfc") ?? undefined;
+  const result = await summaryForUser(supabase, authUser.id, year, rfc);
   return jsonResponse(result, 200);
 }
 

@@ -26,15 +26,25 @@ export const SEV_VALIDA = "valida";
 export const SEV_ADVERTENCIA = "advertencia";
 export const SEV_POR_REVISAR = "por_revisar";
 export const SEV_RECHAZADA = "rechazada";
+/** Fase M14 — factura de un RFC de persona moral: se conserva pero NO se
+ * emite juicio de deducibilidad, porque las reglas de este motor son las de
+ * deducciones personales. No es un grado de problema, es "fuera de alcance". */
+export const SEV_ARCHIVADA = "archivada";
 
 export type Severidad =
   | typeof SEV_VALIDA
   | typeof SEV_ADVERTENCIA
   | typeof SEV_POR_REVISAR
-  | typeof SEV_RECHAZADA;
+  | typeof SEV_RECHAZADA
+  | typeof SEV_ARCHIVADA;
 
 const PRIORIDAD: Record<Severidad, number> = {
   [SEV_VALIDA]: 0,
+  // Prioridad 0, igual que válida: `archivada` no expresa un problema, así
+  // que nunca debe escalar el estatus de una factura ni ser escalada por él.
+  // En la práctica no se mezcla: las facturas de persona moral no pasan por
+  // el resto de las reglas.
+  [SEV_ARCHIVADA]: 0,
   [SEV_POR_REVISAR]: 1,
   [SEV_ADVERTENCIA]: 2,
   [SEV_RECHAZADA]: 3,

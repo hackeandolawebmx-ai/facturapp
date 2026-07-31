@@ -25,14 +25,26 @@ export interface SummaryResult {
   num_facturas: number;
 }
 
-/** Port 1:1 de `_summary_for_user()` en main.py. */
+/** Port de `_summary_for_user()` en main.py, con filtro por RFC (Fase M14).
+ *
+ * `rfc` NO es opcional por comodidad: con varios contribuyentes en una
+ * cuenta, un resumen sin filtrar sumaría las deducciones de dos personas en
+ * un mismo total. Cada quien presenta su propia declaración, así que
+ * mezclarlas sería atribuirle a alguien deducciones que no le corresponden.
+ * Cuando no se indica, se devuelve todo lo del usuario — el comportamiento
+ * anterior, correcto mientras haya un solo RFC.
+ */
 export async function summaryForUser(
   supabase: SupabaseClient, userId: number, year: number = YEAR_DEFAULT,
+  rfc?: string,
 ): Promise<SummaryResult> {
-  const { data, error } = await supabase
+  let query = supabase
     .schema("facturapp").from("invoices")
     .select("categoria, total")
     .eq("user_id", userId).eq("anio", year);
+  if (rfc) query = query.eq("usuario_rfc", rfc);
+
+  const { data, error } = await query;
   if (error) throw new Error(`Error consultando resumen: ${error.message}`);
 
   const rows = data ?? [];
@@ -78,14 +90,17 @@ export interface InvoiceDict {
 /** Port 1:1 de `list_invoices()` (endpoint REST) + `Invoice.to_dict()`. */
 export async function listInvoicesForUser(
   supabase: SupabaseClient, userId: number, year: number = YEAR_DEFAULT,
+  rfc?: string,
 ): Promise<{ year: number; invoices: InvoiceDict[] }> {
-  const { data, error } = await supabase
+  let query = supabase
     .schema("facturapp").from("invoices")
     .select(
       "id, uuid_fiscal, emisor_rfc, emisor_nombre, receptor_rfc, fecha_emision, anio, subtotal, iva, total, uso_cfdi, forma_pago, metodo_pago, clave_prod_principal, concepto_descripcion, categoria, confianza, estatus, hallazgos, pdf_path",
     )
-    .eq("user_id", userId).eq("anio", year)
-    .order("fecha_emision", { ascending: false });
+    .eq("user_id", userId).eq("anio", year);
+  if (rfc) query = query.eq("usuario_rfc", rfc);
+
+  const { data, error } = await query.order("fecha_emision", { ascending: false });
   if (error) throw new Error(`Error consultando facturas: ${error.message}`);
 
   const invoices = (data ?? []).map((r): InvoiceDict => ({

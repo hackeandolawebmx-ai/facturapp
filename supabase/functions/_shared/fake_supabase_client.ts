@@ -15,7 +15,10 @@
 type Row = Record<string, any>;
 
 export class FakeSupabaseClient {
-  tables: Record<string, Row[]> = { users: [], invoices: [], chat_messages: [], debug_logs: [] };
+  tables: Record<string, Row[]> = {
+    users: [], invoices: [], chat_messages: [], debug_logs: [],
+    user_rfcs: [], rate_limit_attempts: [],
+  };
   private nextId: Record<string, number> = { users: 1, invoices: 1 };
 
   /** Respuestas simuladas de `rpc()`, por nombre de función (Fase M8).
@@ -73,7 +76,7 @@ class FakeQueryBuilder {
   private filters: Array<[string, unknown]> = [];
   private negados: Array<[string, unknown]> = [];
   private selectCols: string | null = null;
-  private mode: "select" | "insert" | "update" = "select";
+  private mode: "select" | "insert" | "update" | "delete" = "select";
   private insertRow: Row | null = null;
   private updatePatch: Row | null = null;
   private orderBy: { col: string; ascending: boolean } | null = null;
@@ -119,6 +122,12 @@ class FakeQueryBuilder {
     return this;
   }
 
+  /** Fase M14 — lo usa eliminarRfc(). */
+  delete() {
+    this.mode = "delete";
+    return this;
+  }
+
   private matchRows(): Row[] {
     const rows = this.client.tables[this.table].filter((row) =>
       this.filters.every(([col, val]) => row[col] === val) &&
@@ -154,6 +163,13 @@ class FakeQueryBuilder {
     const rows = this.matchRows();
     if (this.mode === "update" && this.updatePatch) {
       for (const row of rows) Object.assign(row, this.updatePatch);
+    }
+    if (this.mode === "delete") {
+      const tabla = this.client.tables[this.table];
+      for (const row of rows) {
+        const i = tabla.indexOf(row);
+        if (i !== -1) tabla.splice(i, 1);
+      }
     }
     return rows;
   }
