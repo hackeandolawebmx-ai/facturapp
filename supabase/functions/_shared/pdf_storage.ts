@@ -44,6 +44,25 @@ export async function subirPdf(
   return ruta;
 }
 
+/** Elimina el PDF de Storage (Fase M15 — borrar una factura desde el
+ * dashboard).
+ *
+ * NO lanza: si falla, se registra y se continúa. Borrar la factura (la fila
+ * en Postgres, que es lo que el usuario realmente pidió) no debe fallar por
+ * un problema de Storage — en el peor caso queda un archivo huérfano en el
+ * bucket, que es costo de almacenamiento, no un dato visible para nadie.
+ */
+export async function eliminarPdf(
+  supabase: SupabaseClient, ruta: string,
+): Promise<boolean> {
+  const { error } = await supabase.storage.from(BUCKET).remove([ruta]);
+  if (error) {
+    console.error(`No se pudo eliminar el PDF ${ruta}:`, error);
+    return false;
+  }
+  return true;
+}
+
 /** Descarga el PDF desde Storage. Devuelve `null` si no existe.
  *
  * Devuelve el `Blob` tal cual y no `Uint8Array` porque el único consumidor lo

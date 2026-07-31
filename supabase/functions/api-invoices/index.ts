@@ -9,7 +9,7 @@ import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { corsHeaders, jsonHeaders } from "../_shared/cors.ts";
 import { getCurrentUser } from "../_shared/auth.ts";
-import { listInvoicesForUser, reclassifyInvoiceById } from "../_shared/invoices_api.ts";
+import { deleteInvoiceById, listInvoicesForUser, reclassifyInvoiceById } from "../_shared/invoices_api.ts";
 
 function getSupabaseClient() {
   return createClient(
@@ -64,6 +64,30 @@ async function handlePost(req: Request, userId: number, supabase: unknown): Prom
   return jsonResponse(result, 200);
 }
 
+/** DELETE /api-invoices?id={id} (Fase M15).
+ *
+ * `?id=` en vez de un sufijo de ruta: es el mismo patrón que ya usa
+ * api-user-rfcs para su DELETE, y aquí no hace falta el parseo de ruta que
+ * sí necesita /reclassify (que va con /{id}/reclassify por paridad con la
+ * versión Python original).
+ */
+async function handleDelete(req: Request, userId: number, supabase: unknown): Promise<Response> {
+  const idParam = new URL(req.url).searchParams.get("id");
+  const invoiceId = idParam ? Number.parseInt(idParam, 10) : NaN;
+  if (Number.isNaN(invoiceId)) {
+    return jsonResponse({ detail: "Falta el id de la factura" }, 422);
+  }
+
+  // deno-lint-ignore no-explicit-any
+  const result = await deleteInvoiceById(supabase as any, userId, invoiceId);
+  if (!result) {
+    // Mismo 404 para "no existe" y "es de otro usuario": distinguirlos le
+    // diría a un tercero qué ids existen en la base.
+    return jsonResponse({ detail: "Factura no encontrada" }, 404);
+  }
+  return jsonResponse({ message: "Factura eliminada", ...result }, 200);
+}
+
 serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -76,5 +100,6 @@ serve(async (req: Request) => {
 
   if (req.method === "GET") return handleGet(req, authUser.id, supabase);
   if (req.method === "POST") return handlePost(req, authUser.id, supabase);
+  if (req.method === "DELETE") return handleDelete(req, authUser.id, supabase);
   return new Response("Método no soportado", { status: 405, headers: corsHeaders });
 });

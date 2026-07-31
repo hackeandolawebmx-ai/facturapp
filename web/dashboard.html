@@ -157,6 +157,10 @@
   .btn-archivo:last-child{margin-right:0}
   .btn-archivo:hover:not(:disabled){border-color:var(--tinta);color:var(--tinta)}
   .btn-archivo:disabled{opacity:.5;cursor:default}
+  /* Color distinto a propósito: es la única acción destructiva de la fila,
+     y debe leerse como tal antes de que alguien le dé clic por costumbre. */
+  .btn-borrar-factura{color:var(--guinda)}
+  .btn-borrar-factura:hover:not(:disabled){border-color:var(--guinda);color:var(--guinda)}
 
   .fila-advertencia td{border-bottom:none;padding-bottom:.2rem}
   .detalle-advertencia td{padding-top:0;font-size:.78rem;color:var(--guinda)}
@@ -941,6 +945,9 @@
             ? '<button class="btn-archivo" data-tipo="pdf" data-id="' + inv.id +
               '" data-uuid="' + escapeHtml(inv.uuid) + '">PDF</button>'
             : '') +
+          '<button class="btn-archivo btn-borrar-factura" data-id="' + inv.id +
+            '" data-emisor="' + escapeHtml(inv.emisor_nombre) + '" ' +
+            'title="Eliminar esta factura">Borrar</button>' +
         '</td>' +
       '</tr>';
       if (inv.hallazgos && inv.hallazgos.length) {
@@ -967,7 +974,10 @@
   // la tabla se vuelve a pintar con cada filtro y los listeners individuales
   // se perderían.
   $("tbody-facturas").addEventListener("click", async function (ev) {
-    var btn = ev.target.closest(".btn-archivo");
+    // "Borrar" comparte la clase .btn-archivo (mismo estilo visual) pero es
+    // una acción distinta con su propio manejador más abajo — se excluye
+    // aquí para no intentar "descargarla" como si tuviera tipo xml/pdf.
+    var btn = ev.target.closest(".btn-archivo:not(.btn-borrar-factura)");
     if (!btn) return;
 
     var tipo = btn.dataset.tipo;
@@ -999,6 +1009,43 @@
     } finally {
       btn.disabled = false;
       btn.textContent = etiquetaPrevia;
+    }
+  });
+
+  // ---- Borrar una factura --------------------------------------------------
+  //
+  // Es destructivo y no se puede deshacer desde aquí (borra la fila y, si
+  // tiene, su PDF), así que se confirma explícitamente y se dice qué se va a
+  // borrar por nombre de emisor — "¿borrar esta factura?" a secas invita a
+  // aceptar sin leer.
+  $("tbody-facturas").addEventListener("click", async function (ev) {
+    var btn = ev.target.closest(".btn-borrar-factura");
+    if (!btn) return;
+
+    var emisor = btn.dataset.emisor || "esta factura";
+    if (!confirm('¿Borrar la factura de "' + emisor + '"?\n\nNo se puede deshacer.')) {
+      return;
+    }
+
+    mostrarError("error-datos", "");
+    btn.disabled = true;
+    try {
+      var resp = await pedir("/api-invoices?id=" + encodeURIComponent(btn.dataset.id),
+                             { method: "DELETE" });
+      if (!resp) return;
+      if (!resp.ok) {
+        var cuerpo = await resp.json();
+        mostrarError("error-datos", cuerpo.detail || "No se pudo borrar la factura.");
+        return;
+      }
+      // Se recarga desde el servidor en vez de solo quitar la fila del DOM:
+      // borrar cambia los totales de la cédula, y esta es la forma más
+      // simple de mantener ambas cosas consistentes sin duplicar la lógica
+      // de sumas que ya vive en pintarResumen/pintarCedula.
+      await cargarDatos();
+    } catch (e) {
+      mostrarError("error-datos", "No se pudo conectar con el servidor.");
+      btn.disabled = false;
     }
   });
 

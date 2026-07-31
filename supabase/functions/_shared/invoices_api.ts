@@ -15,6 +15,7 @@
  * como el tool de chat — así es como main.py define esa ruta.
  */
 import type { SupabaseClient } from "jsr:@supabase/supabase-js@2";
+import { eliminarPdf } from "./pdf_storage.ts";
 
 const YEAR_DEFAULT = 2026;
 
@@ -166,6 +167,51 @@ export async function getInvoicePdfPath(
   if (error) throw new Error(`Error leyendo la ruta del PDF: ${error.message}`);
   if (!data || !data.pdf_path) return null;
   return { uuid: data.uuid_fiscal, pdfPath: data.pdf_path };
+}
+
+/** Elimina una factura del usuario, junto con su PDF si tiene uno (Fase M15).
+ *
+ * NO existe en Python — se agregó a petición explícita para poder corregir
+ * desde el dashboard casos como una factura ingerida antes de dar de alta el
+ * RFC correcto (queda con un hallazgo `RFC_AJENO` obsoleto que no se
+ * recalcula solo), o simplemente una factura de prueba.
+ *
+ * Filtra por `user_id` además de por `id`, igual que el resto de las
+ * operaciones sobre una factura puntual: sin eso, un id ajeno bastaría para
+ * borrar la factura de otra persona.
+ *
+ * El PDF se borra ANTES que la fila: si el borrado del PDF falla, la fila
+ * sigue existiendo con un `pdf_path` que ya no resuelve a nada — un estado
+ * inconsistente pero detectable (el endpoint de descarga ya maneja "el
+ * archivo no está" con un 500 explícito). Si en cambio se borrara la fila
+ * primero y luego fallara el PDF, quedaría huérfano en Storage sin ningún
+ * registro que lo referencie — imposible de encontrar después para limpiarlo.
+ *
+ * Nunca borra el XML por separado: es la misma fila, así que desaparece con
+ * ella. No hay "borrar el PDF pero conservar el XML" — si el usuario quiere
+ * borrar la factura, se borra completa.
+ */
+export async function deleteInvoiceById(
+  supabase: SupabaseClient, userId: number, invoiceId: number,
+): Promise<{ id: number; uuid: string } | null> {
+  const { data: inv, error: selectError } = await supabase
+    .schema("facturapp").from("invoices")
+    .select("id, uuid_fiscal, pdf_path")
+    .eq("id", invoiceId).eq("user_id", userId)
+    .maybeSingle();
+  if (selectError) throw new Error(`Error buscando factura: ${selectError.message}`);
+  if (!inv) return null;
+
+  if (inv.pdf_path) {
+    await eliminarPdf(supabase, inv.pdf_path);
+  }
+
+  const { error: deleteError } = await supabase
+    .schema("facturapp").from("invoices")
+    .delete().eq("id", invoiceId);
+  if (deleteError) throw new Error(`Error eliminando factura: ${deleteError.message}`);
+
+  return { id: invoiceId, uuid: inv.uuid_fiscal };
 }
 
 /** Port 1:1 de `reclassify()` en main.py — identifica la factura por `id`

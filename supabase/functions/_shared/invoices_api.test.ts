@@ -7,8 +7,9 @@
 import { assertEquals } from "jsr:@std/assert@1";
 import { FakeSupabaseClient } from "./fake_supabase_client.ts";
 import {
-  getInvoiceXml, listInvoicesForUser, reclassifyInvoiceById, summaryForUser,
+  deleteInvoiceById, getInvoiceXml, listInvoicesForUser, reclassifyInvoiceById, summaryForUser,
 } from "./invoices_api.ts";
+import { BUCKET, subirPdf } from "./pdf_storage.ts";
 
 // deno-lint-ignore no-explicit-any
 function client(): any {
@@ -127,4 +128,52 @@ Deno.test("getInvoiceXml: factura guardada sin XML devuelve null", async () => {
   supabase.tables.invoices[0].raw_xml = null;
 
   assertEquals(await getInvoiceXml(supabase, 1, 1), null);
+});
+
+// ---- deleteInvoiceById (Fase M15) -------------------------------------------
+//
+// No existe en Python — se agregó para poder corregir desde el dashboard
+// casos como una factura ingerida antes de dar de alta el RFC correcto.
+
+Deno.test("deleteInvoiceById: borra la factura y devuelve id + uuid", async () => {
+  const supabase = client();
+  seedInvoice(supabase, 1, "UUID-A");
+
+  const result = await deleteInvoiceById(supabase, 1, 1);
+  assertEquals(result, { id: 1, uuid: "UUID-A" });
+  assertEquals(supabase.tables.invoices.length, 0);
+});
+
+Deno.test("deleteInvoiceById: factura de otro usuario devuelve null y NO se borra", async () => {
+  const supabase = client();
+  seedInvoice(supabase, 2, "UUID-X");
+
+  assertEquals(await deleteInvoiceById(supabase, 1, 1), null);
+  assertEquals(supabase.tables.invoices.length, 1); // sigue ahí
+});
+
+Deno.test("deleteInvoiceById: factura inexistente devuelve null", async () => {
+  const supabase = client();
+  assertEquals(await deleteInvoiceById(supabase, 1, 999), null);
+});
+
+Deno.test("deleteInvoiceById: también borra el PDF asociado en Storage", async () => {
+  const supabase = client();
+  seedInvoice(supabase, 1, "UUID-A");
+  const ruta = await subirPdf(supabase, 1, "UUID-A", new TextEncoder().encode("%PDF-1.4"));
+  supabase.tables.invoices[0].pdf_path = ruta;
+
+  await deleteInvoiceById(supabase, 1, 1);
+  assertEquals(supabase.archivos[`${BUCKET}/${ruta}`], undefined);
+});
+
+Deno.test("deleteInvoiceById: sin PDF asociado no intenta borrar nada de Storage", async () => {
+  // pdf_path es nullable (facturas ingeridas por WhatsApp, o antes de M13).
+  // No debe llamar a Storage con una ruta vacía ni fallar por eso.
+  const supabase = client();
+  seedInvoice(supabase, 1, "UUID-A");
+  assertEquals(supabase.tables.invoices[0].pdf_path, undefined);
+
+  const result = await deleteInvoiceById(supabase, 1, 1);
+  assertEquals(result, { id: 1, uuid: "UUID-A" });
 });

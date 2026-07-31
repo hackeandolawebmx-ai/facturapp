@@ -10,11 +10,19 @@ export const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
     "authorization, x-client-info, apikey, content-type, x-hub-signature-256",
-  // Sin esto, el preflight de PATCH falla y el dashboard no puede guardar el
-  // RFC desde otro origen. GET y POST se libran en algunos casos por ser
-  // métodos "simples", pero PATCH nunca: siempre exige preflight, y el
-  // navegador rechaza la petición si el método no aparece aquí.
-  "Access-Control-Allow-Methods": "GET, POST, PATCH, OPTIONS",
+  // Sin esto, el preflight de PATCH/DELETE falla y el dashboard no puede
+  // completar la petición desde otro origen. GET y POST se libran en algunos
+  // casos por ser métodos "simples", pero PATCH y DELETE nunca: siempre
+  // exigen preflight, y el navegador rechaza la petición si el método no
+  // aparece aquí — aunque el servidor la habría aceptado.
+  //
+  // DELETE faltó aquí desde que api-user-rfcs lo empezó a usar (Fase M14):
+  // el botón "Quitar" de un contribuyente probablemente nunca funcionó desde
+  // el navegador, porque el preflight lo rechazaba antes de que la petición
+  // real saliera siquiera — un fallo que solo se ve en la consola del
+  // navegador, nunca en los logs del servidor. Se detectó al agregar otro
+  // endpoint DELETE (borrar factura, Fase M15) y revisar este archivo.
+  "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS",
 };
 
 /**

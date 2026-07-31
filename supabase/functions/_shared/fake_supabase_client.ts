@@ -60,6 +60,13 @@ export class FakeSupabaseClient {
         // perfectamente válido.
         return { data: new Blob([bytes as BlobPart]), error: null };
       },
+      /** Fase M15 — lo usa eliminarPdf(). Igual que el Storage real: quitar
+       * una ruta que no existe no es un error (es idempotente). */
+      // deno-lint-ignore require-await
+      remove: async (rutas: string[]) => {
+        for (const ruta of rutas) delete this.archivos[`${bucket}/${ruta}`];
+        return { data: rutas.map((path) => ({ name: path })), error: null };
+      },
     }),
   };
 

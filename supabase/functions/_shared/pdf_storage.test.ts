@@ -7,7 +7,7 @@
  */
 import { assert, assertEquals } from "jsr:@std/assert@1";
 import { FakeSupabaseClient } from "./fake_supabase_client.ts";
-import { BUCKET, descargarPdf, rutaPdf, subirPdf } from "./pdf_storage.ts";
+import { BUCKET, descargarPdf, eliminarPdf, rutaPdf, subirPdf } from "./pdf_storage.ts";
 
 // deno-lint-ignore no-explicit-any
 function client(): any {
@@ -71,4 +71,32 @@ Deno.test("descargarPdf: recupera el mismo contenido que se subió", async () =>
 Deno.test("descargarPdf: archivo inexistente devuelve null", async () => {
   const supabase = client();
   assertEquals(await descargarPdf(supabase, "7/no-existe.pdf"), null);
+});
+
+// ---- eliminarPdf (Fase M15 — borrar una factura desde el dashboard) --------
+
+Deno.test("eliminarPdf: borra el archivo, ya no se puede descargar después", async () => {
+  const supabase = client();
+  const ruta = await subirPdf(supabase, 7, "UUID-A", CONTENIDO);
+
+  assertEquals(await eliminarPdf(supabase, ruta!), true);
+  assertEquals(await descargarPdf(supabase, ruta!), null);
+});
+
+Deno.test("eliminarPdf: una ruta que nunca existió no lanza (idempotente)", async () => {
+  // Igual que el Storage real: quitar algo que no está no es un error.
+  const supabase = client();
+  assertEquals(await eliminarPdf(supabase, "7/nunca-existio.pdf"), true);
+});
+
+Deno.test("eliminarPdf: ante un error de Storage devuelve false y NO lanza", async () => {
+  // Mismo criterio que subirPdf: un problema de Storage no debe tumbar la
+  // operación que el usuario pidió (borrar la factura).
+  const supabase = client();
+  supabase.storage = {
+    from: () => ({
+      remove: () => Promise.resolve({ data: null, error: { message: "no autorizado" } }),
+    }),
+  };
+  assertEquals(await eliminarPdf(supabase, "7/UUID-A.pdf"), false);
 });
