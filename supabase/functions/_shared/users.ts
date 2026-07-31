@@ -162,6 +162,54 @@ export async function updateUserRfc(
   return (data as UserProfile) ?? null;
 }
 
+export interface UserAuthRow {
+  id: number;
+  rfc: string;
+  hashed_password: string | null;
+}
+
+/** Trae lo mínimo para decidir sobre credenciales: si el usuario ya tiene
+ * contraseña o no. Se separa de `getUserProfile` a propósito para no pasear
+ * el hash por caminos que no lo necesitan. */
+export async function getUserAuth(
+  supabase: SupabaseClient, userId: number,
+): Promise<UserAuthRow | null> {
+  const { data, error } = await supabase
+    .schema("facturapp").from("users")
+    .select("id, rfc, hashed_password")
+    .eq("id", userId)
+    .maybeSingle();
+  if (error) throw new Error(`Error consultando credenciales: ${error.message}`);
+  return (data as UserAuthRow) ?? null;
+}
+
+/** Igual que getUserAuth pero buscando por `web_token`, para el caso de una
+ * cuenta que todavía no tiene contraseña y por tanto no puede autenticarse. */
+export async function getUserAuthByWebToken(
+  supabase: SupabaseClient, token: string,
+): Promise<UserAuthRow | null> {
+  const { data, error } = await supabase
+    .schema("facturapp").from("users")
+    .select("id, rfc, hashed_password")
+    .eq("web_token", token)
+    .maybeSingle();
+  if (error) throw new Error(`Error consultando credenciales: ${error.message}`);
+  return (data as UserAuthRow) ?? null;
+}
+
+export async function setUserPassword(
+  supabase: SupabaseClient, userId: number, hash: string,
+): Promise<boolean> {
+  const { data, error } = await supabase
+    .schema("facturapp").from("users")
+    .update({ hashed_password: hash })
+    .eq("id", userId)
+    .select("id")
+    .maybeSingle();
+  if (error) throw new Error(`Error guardando contraseña: ${error.message}`);
+  return data !== null;
+}
+
 /** Recalcula el hallazgo RFC_AJENO en las facturas ya guardadas del usuario,
  * tras cambiar su RFC (Fase M11).
  *

@@ -7,8 +7,9 @@
 import { assertEquals } from "jsr:@std/assert@1";
 import { FakeSupabaseClient } from "./fake_supabase_client.ts";
 import {
-  getOrCreateUserByEmail, getOrCreateUserByPhone, getUserByWebToken, getUserProfile,
-  revalidarFacturasTrasCambioDeRfc, rfcTomadoPorOtro, updateUserRfc,
+  getOrCreateUserByEmail, getOrCreateUserByPhone, getUserAuth, getUserAuthByWebToken,
+  getUserByWebToken, getUserProfile, revalidarFacturasTrasCambioDeRfc,
+  rfcTomadoPorOtro, setUserPassword, updateUserRfc,
 } from "./users.ts";
 
 // deno-lint-ignore no-explicit-any
@@ -223,4 +224,45 @@ Deno.test("revalidar: sin facturas no falla y devuelve 0", async () => {
   const supabase = client();
   conUsuario(supabase, 1, "AUCD870504PU0");
   assertEquals(await revalidarFacturasTrasCambioDeRfc(supabase, 1, "AUCD870504PU0"), 0);
+});
+
+// ---- Credenciales (Fase M12) ------------------------------------------------
+//
+// Las cuentas creadas por WhatsApp o correo nacen sin contraseña, así que
+// distinguir "tiene" de "no tiene" es lo que decide si el web_token basta
+// para establecerla.
+
+Deno.test("getUserAuth: una cuenta creada por canal no tiene contraseña", async () => {
+  const supabase = client();
+  const user = await getOrCreateUserByPhone(supabase, "5215512345678", "Nuevo");
+
+  const auth = await getUserAuth(supabase, user.id);
+  assertEquals(auth?.hashed_password ?? null, null);
+});
+
+Deno.test("getUserAuthByWebToken: resuelve la cuenta por su token", async () => {
+  const supabase = client();
+  conUsuario(supabase, 7, "PEND111111111");
+
+  const auth = await getUserAuthByWebToken(supabase, "TOKEN7");
+  assertEquals(auth?.id, 7);
+});
+
+Deno.test("getUserAuthByWebToken: token inexistente devuelve null", async () => {
+  const supabase = client();
+  assertEquals(await getUserAuthByWebToken(supabase, "no-existe"), null);
+});
+
+Deno.test("setUserPassword: guarda el hash y deja de ser nula", async () => {
+  const supabase = client();
+  conUsuario(supabase, 1, "PEND111111111");
+
+  assertEquals(await setUserPassword(supabase, 1, "$2b$10$hash-de-prueba"), true);
+  const auth = await getUserAuth(supabase, 1);
+  assertEquals(auth?.hashed_password, "$2b$10$hash-de-prueba");
+});
+
+Deno.test("setUserPassword: usuario inexistente devuelve false", async () => {
+  const supabase = client();
+  assertEquals(await setUserPassword(supabase, 999, "$2b$10$x"), false);
 });
