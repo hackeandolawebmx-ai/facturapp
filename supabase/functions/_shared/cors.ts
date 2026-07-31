@@ -1,15 +1,20 @@
 // Fase M1 — Headers CORS compartidos entre Edge Functions.
 //
-// NOTA: los webhooks de SendGrid/Meta son llamadas servidor-a-servidor, no
-// están sujetas a CORS (eso es una restricción de navegador). Este helper
-// existe sobre todo por si en el futuro alguna función se llama desde un
-// navegador (dashboard, herramienta de pruebas) — es el boilerplate estándar
-// que genera `supabase functions new`.
+// Los webhooks de SendGrid/Meta son llamadas servidor-a-servidor y no están
+// sujetas a CORS (es una restricción de navegador). Pero desde M11 sí hay un
+// consumidor real desde el navegador: el dashboard, que vive en un origen
+// distinto (hosting estático) porque Supabase no permite servir HTML desde
+// una Edge Function — ver web/README.md.
 
 export const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
     "authorization, x-client-info, apikey, content-type, x-hub-signature-256",
+  // Sin esto, el preflight de PATCH falla y el dashboard no puede guardar el
+  // RFC desde otro origen. GET y POST se libran en algunos casos por ser
+  // métodos "simples", pero PATCH nunca: siempre exige preflight, y el
+  // navegador rechaza la petición si el método no aparece aquí.
+  "Access-Control-Allow-Methods": "GET, POST, PATCH, OPTIONS",
 };
 
 /**

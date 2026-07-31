@@ -1,32 +1,4 @@
-/**
- * Dashboard web de FacturasMX (Fase M11).
- *
- * Port del `templates/dashboard.html` de Python, con tres cambios de fondo:
- *
- * 1. **Acceso con login**, no con `/a/{token}`. El original abría el archivo
- *    fiscal completo a cualquiera que tuviera el enlace. Aquí se usa la
- *    autenticación que ya existe (auth-login → JWT) y se consumen los
- *    endpoints autenticados en vez de los públicos.
- *
- * 2. **Sin datos inventados.** El template original traía cifras escritas a
- *    mano ($61,535 de total, "12 facturas", una barra de "34% de $198,031",
- *    filas de farmacias ficticias) que el JavaScript reemplazaba al cargar.
- *    Si el fetch fallaba, el usuario se quedaba viendo cantidades fiscales
- *    fabricadas con aspecto de reales. Aquí no hay ninguna cifra que no
- *    venga de la base de datos.
- *
- * 3. **Captura del RFC.** Es el único lugar donde un usuario dado de alta por
- *    WhatsApp o correo puede cambiar su RFC sintético (`PEND...`) por el
- *    real. Sin eso, todas sus facturas salen marcadas como no deducibles.
- *
- * Se conserva el diseño visual del original (tipografía, paleta de papel y
- * tinta, cédula como elemento central): es trabajo de diseño ya hecho y
- * bueno, y no había razón para rehacerlo.
- *
- * El JavaScript embebido usa concatenación en vez de plantillas literales
- * para no chocar con la plantilla literal de TypeScript que lo contiene.
- */
-export const PAGINA_HTML = String.raw`<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="es">
 <head>
 <meta charset="UTF-8">
@@ -238,8 +210,11 @@ export const PAGINA_HTML = String.raw`<!DOCTYPE html>
 (function () {
   "use strict";
 
-  // La API vive junto a esta función: /functions/v1/dashboard -> /functions/v1
-  var API = location.pathname.replace(/\/dashboard\/?$/, "");
+  // ---------------------------------------------------------------------
+  // ÚNICA LÍNEA A CONFIGURAR: la base de las Edge Functions del proyecto.
+  // ---------------------------------------------------------------------
+  var API = "https://smocemszqzsypuachevr.supabase.co/functions/v1";
+
   var CLAVE_SESION = "facturapp_token";
 
   var CHIP = { "Médicos": "medicos", "Colegiaturas": "colegiaturas",
@@ -545,4 +520,4 @@ export const PAGINA_HTML = String.raw`<!DOCTYPE html>
 })();
 </script>
 </body>
-</html>`;
+</html>
