@@ -69,6 +69,9 @@ verify_jwt = false
 [functions.api-invoices]
 verify_jwt = false
 
+[functions.api-invoice-xml]
+verify_jwt = false
+
 # api-public-* no usan NINGÚN JWT -- se autentican por `web_token` en query
 # param (ver _shared/users.ts: getUserByWebToken). Mismo motivo que los
 # webhooks: sin esto, el gateway de Supabase exigiría un JWT de Supabase

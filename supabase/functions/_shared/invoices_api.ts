@@ -108,6 +108,31 @@ export async function listInvoicesForUser(
   return { year, invoices };
 }
 
+/** Devuelve el XML original de una factura del usuario (Fase M13).
+ *
+ * El XML **es** el comprobante fiscal; el PDF es solo su representación
+ * impresa. Se guardaba desde M4 en `raw_xml` pero no había forma de
+ * recuperarlo: el archivo estaba completo y a la vez inaccesible.
+ *
+ * Filtra por `user_id` además de por `id`, como todo lo demás: sin eso, un
+ * id ajeno bastaría para leer la factura de otra persona.
+ *
+ * Devuelve `null` si la factura no existe, no es del usuario, o se guardó sin
+ * XML — este último caso existe porque `raw_xml` es nullable.
+ */
+export async function getInvoiceXml(
+  supabase: SupabaseClient, userId: number, invoiceId: number,
+): Promise<{ uuid: string; xml: string } | null> {
+  const { data, error } = await supabase
+    .schema("facturapp").from("invoices")
+    .select("uuid_fiscal, raw_xml")
+    .eq("id", invoiceId).eq("user_id", userId)
+    .maybeSingle();
+  if (error) throw new Error(`Error leyendo el XML: ${error.message}`);
+  if (!data || !data.raw_xml) return null;
+  return { uuid: data.uuid_fiscal, xml: data.raw_xml };
+}
+
 /** Port 1:1 de `reclassify()` en main.py — identifica la factura por `id`
  * numérico (PK), NO por `uuid_fiscal` (a diferencia de
  * `toolReclassifyInvoice` en chat.ts). Devuelve `null` si la factura no

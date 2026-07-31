@@ -6,7 +6,9 @@
  */
 import { assertEquals } from "jsr:@std/assert@1";
 import { FakeSupabaseClient } from "./fake_supabase_client.ts";
-import { listInvoicesForUser, reclassifyInvoiceById, summaryForUser } from "./invoices_api.ts";
+import {
+  getInvoiceXml, listInvoicesForUser, reclassifyInvoiceById, summaryForUser,
+} from "./invoices_api.ts";
 
 // deno-lint-ignore no-explicit-any
 function client(): any {
@@ -86,4 +88,43 @@ Deno.test("reclassifyInvoiceById: factura de otro usuario devuelve null (404)", 
 
   const result = await reclassifyInvoiceById(supabase, 1, 1, "Médicos");
   assertEquals(result, null);
+});
+
+// ---- getInvoiceXml (Fase M13) -----------------------------------------------
+//
+// El XML ES el comprobante fiscal. Se guardaba desde M4 pero no había forma de
+// recuperarlo: archivado e inaccesible a la vez.
+
+Deno.test("getInvoiceXml: devuelve el XML y el UUID de la factura", async () => {
+  const supabase = client();
+  seedInvoice(supabase, 1, "UUID-A");
+  supabase.tables.invoices[0].raw_xml = "<cfdi:Comprobante/>";
+
+  const r = await getInvoiceXml(supabase, 1, 1);
+  assertEquals(r?.uuid, "UUID-A");
+  assertEquals(r?.xml, "<cfdi:Comprobante/>");
+});
+
+Deno.test("getInvoiceXml: la factura de otro usuario devuelve null", async () => {
+  // Sin el filtro por user_id, un id ajeno bastaría para leer la factura de
+  // otra persona. Es la regla de aislamiento más importante del endpoint.
+  const supabase = client();
+  seedInvoice(supabase, 2, "UUID-A");
+  supabase.tables.invoices[0].raw_xml = "<cfdi:Comprobante/>";
+
+  assertEquals(await getInvoiceXml(supabase, 1, 1), null);
+});
+
+Deno.test("getInvoiceXml: factura inexistente devuelve null", async () => {
+  const supabase = client();
+  assertEquals(await getInvoiceXml(supabase, 1, 999), null);
+});
+
+Deno.test("getInvoiceXml: factura guardada sin XML devuelve null", async () => {
+  // raw_xml es nullable, así que este caso existe y no debe romper.
+  const supabase = client();
+  seedInvoice(supabase, 1, "UUID-A");
+  supabase.tables.invoices[0].raw_xml = null;
+
+  assertEquals(await getInvoiceXml(supabase, 1, 1), null);
 });

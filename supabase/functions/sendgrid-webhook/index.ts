@@ -122,8 +122,17 @@ async function handlePost(req: Request): Promise<Response> {
     });
   }
 
+  // Si el correo trae XML, el PDF no se procesa como si fuera una factura
+  // suelta: al hacerlo, `ingestInvoice` respondía "Solo recibimos el PDF,
+  // necesitas el XML para deducir" a alguien que SÍ había mandado el XML.
+  // Decirle a un usuario que le falta algo que sí envió es peor que no
+  // decirle nada.
+  const aProcesar = correo.adjuntos.xml
+    ? entries.filter(([kind]) => kind === "xml")
+    : entries;
+
   const resultados: Array<Record<string, unknown>> = [];
-  for (const [kind, contenido] of entries) {
+  for (const [kind, contenido] of aProcesar) {
     const filename = `attachment.${kind}`;
     try {
       const result = await ingestInvoice(supabase, user, contenido, filename);
