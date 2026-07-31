@@ -19,7 +19,8 @@ que esté completa y validada; no reemplaza nada todavía.
 | M4b | Chat conversacional por WhatsApp (texto) + comandos rápidos + `debug_logs` | ✅ |
 | M7 | API que faltaba: `/auth/*`, `/api/user/profile`, `/api/summary`, `/api/invoices`, `/api/public/*` | ✅ |
 | M8 | Rate limiting de `/auth/login` con estado en Postgres | ✅ |
-| **M9** | El webhook de SendGrid acepta el `multipart/form-data` real | ✅ Este documento |
+| M9 | El webhook de SendGrid acepta el `multipart/form-data` real | ✅ |
+| **M10** | Verificación de origen en el webhook de SendGrid | ✅ Este documento |
 
 ## Estructura
 
@@ -706,7 +707,38 @@ supabase secrets set WHATSAPP_ACCESS_TOKEN=...
 supabase secrets set WHATSAPP_PHONE_NUMBER_ID=...
 supabase secrets set WHATSAPP_VERIFY_TOKEN=...
 supabase secrets set WHATSAPP_APP_SECRET=...
+supabase secrets set SENDGRID_WEBHOOK_SECRET=...   # Fase M10 — ver abajo
 ```
+
+`SENDGRID_WEBHOOK_SECRET` es un secreto **inventado por ti** (no lo da
+SendGrid): se configura aquí y se embebe en la URL de destino de Inbound
+Parse como Basic auth. Sin él, el webhook de correo queda **sin
+verificación de origen** — solo avisa en el log y acepta cualquier
+petición.
+
+### Configurar el correo entrante (SendGrid Inbound Parse)
+
+**Usa un subdominio, no el dominio raíz.** Los registros MX solo pueden
+apuntar a un proveedor a la vez: si apuntas el raíz a SendGrid, cualquier
+correo corporativo existente (Google Workspace, Microsoft 365) deja de
+recibir. Un subdominio tiene MX independientes.
+
+1. **DNS del dominio** — agregar (sin tocar los MX existentes del raíz):
+
+   | Tipo | Nombre | Apunta a | Prioridad |
+   |---|---|---|---|
+   | `MX` | `facturas` | `mx.sendgrid.net` | `10` |
+
+2. **SendGrid → Settings → Inbound Parse → Add Host & URL**
+   - Receiving Domain: `facturas.<tu-dominio>`
+   - Destination URL, con el secreto como Basic auth (así viaja en un
+     header y no en la URL, que Supabase registra en sus logs):
+     ```
+     https://facturapp:<SENDGRID_WEBHOOK_SECRET>@<project-ref>.supabase.co/functions/v1/sendgrid-webhook
+     ```
+   - **Dejar "POST the raw, full MIME message" DESACTIVADO.** Activado manda
+     el MIME crudo, que este webhook no parsea; desactivado manda el
+     `multipart/form-data` ya parseado, que es lo que espera (Fase M9).
 
 `WHATSAPP_VERIFY_TOKEN` y `WHATSAPP_APP_SECRET` son **dos secretos
 distintos** (mismo matiz que en la Fase 3b de Python): el primero solo sirve
@@ -859,6 +891,7 @@ servicios reales** (Meta, OpenAI, Postgres), no solo contra tests:
 | `api-public-summary` / `api-public-invoices` | con `web_token` válido → `200`; con token inválido → `404` |
 | Webhook de SendGrid, JSON | XML real en base64; decodificado, clasificado y guardado |
 | Webhook de SendGrid, `multipart/form-data` (M9) | el formato real de Inbound Parse; resultado **idéntico** al de JSON — mismo UUID, misma categoría, mismos hallazgos. Sin adjuntos → `202 sin_adjuntos` |
+| Verificación de origen de SendGrid (M10) | sin credenciales, con Basic auth incorrecto y con query param incorrecto → `401`; con el secreto correcto por cualquiera de las dos vías → `200` |
 | WhatsApp: comando rápido (`hola`) | mensaje real desde un teléfono; responde sin llamar a OpenAI |
 | WhatsApp: chat conversacional (M4b) | mensaje real; `tools_used: [get_summary]`, leyendo de Postgres |
 | WhatsApp: ingesta de factura | XML real como adjunto; descargado de la Graph API, parseado, validado, clasificado y guardado |
@@ -916,10 +949,17 @@ números registrados explícitamente como destinatarios (máximo 5).
   `multipart/form-data` a mano con la misma estructura que manda Inbound
   Parse. Falta configurar el dominio y el MX en SendGrid y mandarse un
   correo real — eso ya es configuración de infraestructura, no código.
-- ❌ **Sin verificación de origen en el webhook de SendGrid** — mismo
-  caveat que la versión Python: no valida que la petición venga realmente
-  de SendGrid. Cualquiera que sepa la URL puede inyectar un correo falso.
-  Con el canal ya funcional, esto pasa de teórico a relevante.
+- ⚠️ **La verificación de origen de SendGrid autentica el ORIGEN, no el
+  CONTENIDO.** Inbound Parse no firma sus peticiones (a diferencia de Meta),
+  así que quien tenga el secreto puede enviar el correo que quiera. Es
+  estrictamente mejor que no tener nada, pero no equivale al HMAC de
+  WhatsApp, que además prueba que el cuerpo no fue alterado.
+- ⚠️ **La verificación se omite si `SENDGRID_WEBHOOK_SECRET` no está
+  configurado** (avisando en el log), para no tumbar un despliegue en
+  funcionamiento al introducirla. Eso significa que **un despliegue nuevo
+  queda desprotegido hasta que se configure el secreto** — pasó exactamente
+  eso al desplegar M10, y solo se detectó porque la verificación contra
+  producción lo mostró.
 - ✅ **No hay datos de producción que migrar** — comprobado, no supuesto.
   Ver "Por qué no hubo migración de datos" más abajo.
 - ❌ **Sin respuesta por email en SendGrid** (fuera de alcance de v1, igual
