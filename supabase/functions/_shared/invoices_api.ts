@@ -69,6 +69,10 @@ export interface InvoiceDict {
   confianza: number;
   estatus: string;
   hallazgos: unknown[];
+  /** Si la factura llegó acompañada de su PDF (Fase M13). No se expone la
+   * ruta en Storage: al cliente solo le sirve saber si hay algo que
+   * descargar, y publicar rutas internas no aporta nada. */
+  tiene_pdf: boolean;
 }
 
 /** Port 1:1 de `list_invoices()` (endpoint REST) + `Invoice.to_dict()`. */
@@ -78,7 +82,7 @@ export async function listInvoicesForUser(
   const { data, error } = await supabase
     .schema("facturapp").from("invoices")
     .select(
-      "id, uuid_fiscal, emisor_rfc, emisor_nombre, receptor_rfc, fecha_emision, anio, subtotal, iva, total, uso_cfdi, forma_pago, metodo_pago, clave_prod_principal, concepto_descripcion, categoria, confianza, estatus, hallazgos",
+      "id, uuid_fiscal, emisor_rfc, emisor_nombre, receptor_rfc, fecha_emision, anio, subtotal, iva, total, uso_cfdi, forma_pago, metodo_pago, clave_prod_principal, concepto_descripcion, categoria, confianza, estatus, hallazgos, pdf_path",
     )
     .eq("user_id", userId).eq("anio", year)
     .order("fecha_emision", { ascending: false });
@@ -104,6 +108,7 @@ export async function listInvoicesForUser(
     confianza: r.confianza,
     estatus: r.estatus,
     hallazgos: r.hallazgos ?? [],
+    tiene_pdf: Boolean(r.pdf_path),
   }));
   return { year, invoices };
 }
@@ -131,6 +136,21 @@ export async function getInvoiceXml(
   if (error) throw new Error(`Error leyendo el XML: ${error.message}`);
   if (!data || !data.raw_xml) return null;
   return { uuid: data.uuid_fiscal, xml: data.raw_xml };
+}
+
+/** Devuelve la ruta en Storage del PDF de una factura del usuario, o `null`
+ * si la factura no existe, no es suya, o llegó sin PDF (Fase M13). */
+export async function getInvoicePdfPath(
+  supabase: SupabaseClient, userId: number, invoiceId: number,
+): Promise<{ uuid: string; pdfPath: string } | null> {
+  const { data, error } = await supabase
+    .schema("facturapp").from("invoices")
+    .select("uuid_fiscal, pdf_path")
+    .eq("id", invoiceId).eq("user_id", userId)
+    .maybeSingle();
+  if (error) throw new Error(`Error leyendo la ruta del PDF: ${error.message}`);
+  if (!data || !data.pdf_path) return null;
+  return { uuid: data.uuid_fiscal, pdfPath: data.pdf_path };
 }
 
 /** Port 1:1 de `reclassify()` en main.py — identifica la factura por `id`

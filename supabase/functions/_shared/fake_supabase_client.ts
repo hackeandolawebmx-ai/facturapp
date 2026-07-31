@@ -36,6 +36,30 @@ export class FakeSupabaseClient {
     return new FakeQueryBuilder(this, table);
   }
 
+  /** Storage simulado en memoria (Fase M13): `bucket/ruta` → bytes.
+   *
+   * Solo cubre upload y download, que es todo lo que usa pdf_storage.ts. */
+  archivos: Record<string, Uint8Array> = {};
+
+  storage = {
+    from: (bucket: string) => ({
+      // deno-lint-ignore require-await
+      upload: async (ruta: string, contenido: Uint8Array, _opciones?: unknown) => {
+        this.archivos[`${bucket}/${ruta}`] = contenido;
+        return { data: { path: ruta }, error: null };
+      },
+      // deno-lint-ignore require-await
+      download: async (ruta: string) => {
+        const bytes = this.archivos[`${bucket}/${ruta}`];
+        if (!bytes) return { data: null, error: { message: "no existe" } };
+        // El cast evita la fricción entre ArrayBufferLike y ArrayBuffer en los
+        // tipos de Deno; en tiempo de ejecución un Uint8Array es un BlobPart
+        // perfectamente válido.
+        return { data: new Blob([bytes as BlobPart]), error: null };
+      },
+    }),
+  };
+
   // deno-lint-ignore require-await
   async rpc(nombre: string, args: Row) {
     this.rpcLlamadas.push({ nombre, args });

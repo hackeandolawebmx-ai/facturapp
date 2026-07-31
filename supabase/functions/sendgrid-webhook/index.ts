@@ -28,6 +28,7 @@ import {
 } from "../_shared/email.ts";
 import { getOrCreateUserByEmail } from "../_shared/users.ts";
 import { ingestInvoice } from "../_shared/invoices.ts";
+import { subirPdf } from "../_shared/pdf_storage.ts";
 
 function getSupabaseClient() {
   return createClient(
@@ -136,7 +137,28 @@ async function handlePost(req: Request): Promise<Response> {
     const filename = `attachment.${kind}`;
     try {
       const result = await ingestInvoice(supabase, user, contenido, filename);
-      resultados.push({ filename, ...result });
+
+      // Si el mismo correo trae el PDF, se guarda junto a la factura. Este es
+      // el caso normal: los PAC mandan XML y PDF en el mismo envío. Por
+      // WhatsApp llegan como mensajes separados y no hay forma fiable de
+      // emparejarlos, así que ahí el PDF sigue sin guardarse.
+      let pdfGuardado = false;
+      if (kind === "xml" && correo.adjuntos.pdf && result.invoice_id && result.uuid) {
+        const ruta = await subirPdf(supabase, user.id, result.uuid, correo.adjuntos.pdf);
+        if (ruta) {
+          const { error } = await supabase
+            .schema("facturapp").from("invoices")
+            .update({ pdf_path: ruta })
+            .eq("id", result.invoice_id);
+          if (error) {
+            console.error(`No se pudo enlazar el PDF de ${result.uuid}:`, error);
+          } else {
+            pdfGuardado = true;
+          }
+        }
+      }
+
+      resultados.push({ filename, ...result, pdf_guardado: pdfGuardado });
     } catch (exc) {
       console.error(`Error procesando adjunto ${filename} de ${senderEmail}:`, exc);
       resultados.push({ filename, error: "No se pudo procesar la factura" });

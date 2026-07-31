@@ -24,6 +24,9 @@ export interface IngestResult {
   estatus: string;
   categoria?: string;
   hallazgos: Array<{ codigo: string; severidad: string; mensaje: string; detalle?: string }>;
+  /** Id de la fila insertada, para poder asociarle el PDF (Fase M13).
+   * Ausente cuando la factura se rechaza y no se guarda nada. */
+  invoice_id?: number;
 }
 
 /** UUIDs de facturas existentes DE ESTE usuario (aislamiento). */
@@ -108,8 +111,13 @@ export async function ingestInvoice(
   const resultado = engine.validate(invoice, fechaPrevia);
   const { confianza } = classifyInvoice(invoice);
 
+  // El id de la fila insertada se devuelve para poder asociarle después el
+  // PDF (Fase M13). Es `undefined` cuando la factura se rechaza y no se
+  // guarda nada.
+  let invoiceId: number | undefined;
+
   if (resultado.status !== SEV_RECHAZADA) {
-    const { error: insertError } = await supabase
+    const { data: creada, error: insertError } = await supabase
       .schema("facturapp")
       .from("invoices")
       .insert({
@@ -134,8 +142,11 @@ export async function ingestInvoice(
         estatus: resultado.status,
         hallazgos: resultado.hallazgos,
         raw_xml: invoice.raw_xml,
-      });
+      })
+      .select("id")
+      .single();
     if (insertError) throw new Error(`Error guardando factura: ${insertError.message}`);
+    invoiceId = creada?.id;
   }
 
   return {
@@ -144,5 +155,6 @@ export async function ingestInvoice(
     estatus: resultado.status,
     categoria: resultado.categoria,
     hallazgos: resultado.hallazgos,
+    invoice_id: invoiceId,
   };
 }
