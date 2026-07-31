@@ -293,3 +293,159 @@ Deno.test("buildSystemPrompt: a mediodía de México el año es el corriente", (
   const prompt = buildSystemPrompt(new Date("2027-01-01T18:00:00Z"));
   assert(prompt.includes("2027"));
 });
+
+// ---- Varios contribuyentes en el chat (Fase M14) ----------------------------
+//
+// Sin esto, "cuánto llevo" en una cuenta con dos RFCs sumaría en silencio las
+// deducciones de dos contribuyentes distintos, cada uno con su propia
+// declaración — el mismo problema que el filtro `rfc` resolvió en el
+// dashboard, llevado al chat.
+
+// deno-lint-ignore no-explicit-any
+function conRfcs(supabase: any, userId: number, rfcs: Array<{
+  rfc: string; tipo: string; alias?: string | null; principal?: boolean;
+}>) {
+  rfcs.forEach((r, i) => {
+    supabase.tables.user_rfcs.push({
+      id: i + 1, user_id: userId, rfc: r.rfc, tipo: r.tipo,
+      alias: r.alias ?? null, es_principal: r.principal ?? false,
+    });
+  });
+}
+
+Deno.test("buildSystemPrompt: con un solo contribuyente no menciona nada extra", () => {
+  const prompt = buildSystemPrompt(new Date("2026-07-30T15:00:00Z"), [
+    { id: 1, rfc: "AUCD870504PU0", tipo: "fisica", alias: null, es_principal: true },
+  ]);
+  assert(!prompt.includes("más de un contribuyente"));
+});
+
+Deno.test("buildSystemPrompt: con dos RFCs instruye a preguntar cuál", () => {
+  const prompt = buildSystemPrompt(new Date("2026-07-30T15:00:00Z"), [
+    { id: 1, rfc: "AUCD870504PU0", tipo: "fisica", alias: null, es_principal: true },
+    { id: 2, rfc: "ABC010101AB1", tipo: "moral", alias: "Mi empresa", es_principal: false },
+  ]);
+  assert(prompt.includes("AUCD870504PU0"));
+  assert(prompt.includes("Mi empresa"));
+  assert(prompt.includes("PREGÚNTALE"));
+});
+
+Deno.test("chat(): con un solo RFC, get_summary no exige rfc (compatibilidad)", async () => {
+  const supabase = client();
+  supabase.tables.users.push({ id: 1, rfc: "DAXX860715XX0" });
+  conRfcs(supabase, 1, [{ rfc: "DAXX860715XX0", tipo: "fisica", principal: true }]);
+  seedInvoice(supabase, 1, "UUID-A-1", 1160.0);
+
+  const result = await chat(
+    supabase, { id: 1, rfc: "DAXX860715XX0" }, "¿cuánto llevo?",
+    fakeCompletionFor("get_summary"),
+  );
+  assert(result.response.includes("1160"));
+});
+
+Deno.test("chat(): get_summary con rfc filtra al contribuyente correcto", async () => {
+  const supabase = client();
+  supabase.tables.users.push({ id: 1, rfc: "DAXX860715XX0" });
+  conRfcs(supabase, 1, [
+    { rfc: "DAXX860715XX0", tipo: "fisica", principal: true },
+    { rfc: "REBB900110AB1", tipo: "fisica", alias: "Pareja" },
+  ]);
+  supabase.tables.invoices.push(
+    { id: 1, user_id: 1, uuid_fiscal: "UUID-MIA", usuario_rfc: "DAXX860715XX0",
+      emisor_nombre: "Dr. X", fecha_emision: "2026-07-12", anio: 2026,
+      total: 1000, categoria: "Médicos", estatus: "valida", hallazgos: [] },
+    { id: 2, user_id: 1, uuid_fiscal: "UUID-PAREJA", usuario_rfc: "REBB900110AB1",
+      emisor_nombre: "Dr. Y", fecha_emision: "2026-08-01", anio: 2026,
+      total: 5000, categoria: "Médicos", estatus: "valida", hallazgos: [] },
+  );
+
+  const result = await chat(
+    supabase, { id: 1, rfc: "DAXX860715XX0" }, "cuánto llevo",
+    fakeCompletionFor("get_summary", { rfc: "REBB900110AB1" }),
+  );
+
+  // El total de la pareja (5000), NO la suma de ambos (6000) ni el propio (1000).
+  assert(result.response.includes("5000"));
+  assert(!result.response.includes("6000"));
+});
+
+Deno.test("chat(): get_summary sobre un RFC moral no da categorías de deducción", async () => {
+  const supabase = client();
+  supabase.tables.users.push({ id: 1, rfc: "DAXX860715XX0" });
+  conRfcs(supabase, 1, [
+    { rfc: "DAXX860715XX0", tipo: "fisica", principal: true },
+    { rfc: "ABC010101AB1", tipo: "moral", alias: "Mi empresa" },
+  ]);
+  supabase.tables.invoices.push({
+    id: 1, user_id: 1, uuid_fiscal: "UUID-EMPRESA", usuario_rfc: "ABC010101AB1",
+    emisor_nombre: "Proveedor", fecha_emision: "2026-07-12", anio: 2026,
+    total: 8000, categoria: null, estatus: "archivada", hallazgos: [],
+  });
+
+  const result = await chat(
+    supabase, { id: 1, rfc: "DAXX860715XX0" }, "cuánto llevo en mi empresa",
+    fakeCompletionFor("get_summary", { rfc: "ABC010101AB1" }),
+  );
+
+  assert(result.response.includes("8000"));
+  // No debe presentarse como cédula de deducciones ni inventar categorías.
+  assert(!result.response.includes("categorias"));
+});
+
+Deno.test("chat(): un RFC inventado por el modelo da error, no datos de otro", async () => {
+  const supabase = client();
+  supabase.tables.users.push({ id: 1, rfc: "DAXX860715XX0" });
+  conRfcs(supabase, 1, [
+    { rfc: "DAXX860715XX0", tipo: "fisica", principal: true },
+    { rfc: "REBB900110AB1", tipo: "fisica", alias: "Pareja" },
+  ]);
+  seedInvoice(supabase, 1, "UUID-A-1", 1160.0);
+
+  const result = await chat(
+    supabase, { id: 1, rfc: "DAXX860715XX0" }, "cuánto llevo",
+    fakeCompletionFor("get_summary", { rfc: "XAXX010101000" }),
+  );
+  assert(result.response.toLowerCase().includes("no encontré"));
+});
+
+Deno.test("chat(): list_invoices también respeta el filtro por rfc", async () => {
+  const supabase = client();
+  supabase.tables.users.push({ id: 1, rfc: "DAXX860715XX0" });
+  conRfcs(supabase, 1, [
+    { rfc: "DAXX860715XX0", tipo: "fisica", principal: true },
+    { rfc: "REBB900110AB1", tipo: "fisica", alias: "Pareja" },
+  ]);
+  supabase.tables.invoices.push(
+    { id: 1, user_id: 1, uuid_fiscal: "UUID-MIA", usuario_rfc: "DAXX860715XX0",
+      emisor_nombre: "Dr. X", fecha_emision: "2026-07-12", anio: 2026,
+      total: 1000, categoria: "Médicos", estatus: "valida", hallazgos: [] },
+    { id: 2, user_id: 1, uuid_fiscal: "UUID-PAREJA", usuario_rfc: "REBB900110AB1",
+      emisor_nombre: "Dr. Y", fecha_emision: "2026-08-01", anio: 2026,
+      total: 5000, categoria: "Médicos", estatus: "valida", hallazgos: [] },
+  );
+
+  const result = await chat(
+    supabase, { id: 1, rfc: "DAXX860715XX0" }, "facturas de mi pareja",
+    fakeCompletionFor("list_invoices", { rfc: "REBB900110AB1" }),
+  );
+  assert(result.response.includes("UUID-PAREJA"));
+  assert(!result.response.includes("UUID-MIA"));
+});
+
+Deno.test("chat(): reclassify_invoice rechaza una factura archivada (persona moral)", async () => {
+  const supabase = client();
+  supabase.tables.users.push({ id: 1, rfc: "DAXX860715XX0" });
+  supabase.tables.invoices.push({
+    id: 1, user_id: 1, uuid_fiscal: "UUID-EMPRESA", usuario_rfc: "ABC010101AB1",
+    emisor_nombre: "Proveedor", fecha_emision: "2026-07-12", anio: 2026,
+    total: 8000, categoria: null, estatus: "archivada", hallazgos: [],
+  });
+
+  const result = await chat(
+    supabase, { id: 1, rfc: "DAXX860715XX0" }, "reclasifica esa a médicos",
+    fakeCompletionFor("reclassify_invoice", { uuid: "UUID-EMPRESA", nueva_categoria: "Médicos" }),
+  );
+
+  assertEquals(supabase.tables.invoices[0].categoria, null);
+  assert(result.response.toLowerCase().includes("persona moral"));
+});

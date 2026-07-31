@@ -38,6 +38,7 @@
 import OpenAI, { APIError, OpenAIError, RateLimitError } from "npm:openai@4";
 import type { SupabaseClient } from "jsr:@supabase/supabase-js@2";
 import type { AuthenticatedUser } from "./auth.ts";
+import { listarRfcs, type RfcDeCuenta } from "./rfcs.ts";
 
 // --------------------------------------------------------------------------
 // Clasificación de intención (huérfana en Python — se porta igual, sin uso)
@@ -78,10 +79,19 @@ export const TOOLS = [
     type: "function",
     function: {
       name: "get_summary",
-      description: "Obtiene totales de deducciones por categoría del usuario.",
+      description:
+        "Obtiene totales de deducciones por categoría del usuario. Si la cuenta " +
+        "administra más de un contribuyente, pasa `rfc` con el RFC exacto del " +
+        "contribuyente al que se refiere la pregunta.",
       parameters: {
         type: "object",
-        properties: { year: { type: "integer" }, categoria: { type: "string" } },
+        properties: {
+          year: { type: "integer" }, categoria: { type: "string" },
+          rfc: {
+            type: "string",
+            description: "RFC exacto del contribuyente (de la lista de contribuyentes de la cuenta).",
+          },
+        },
       },
     },
   },
@@ -89,11 +99,14 @@ export const TOOLS = [
     type: "function",
     function: {
       name: "list_invoices",
-      description: "Lista facturas del usuario con filtros opcionales.",
+      description:
+        "Lista facturas del usuario con filtros opcionales. Mismo uso de `rfc` " +
+        "que get_summary cuando hay más de un contribuyente.",
       parameters: {
         type: "object",
         properties: {
           year: { type: "integer" }, month: { type: "integer" }, categoria: { type: "string" },
+          rfc: { type: "string", description: "RFC exacto del contribuyente." },
         },
       },
     },
@@ -115,7 +128,13 @@ export const TOOLS = [
     function: {
       name: "export_package",
       description: "Genera un paquete ZIP de exportación del año.",
-      parameters: { type: "object", properties: { year: { type: "integer" } } },
+      parameters: {
+        type: "object",
+        properties: {
+          year: { type: "integer" },
+          rfc: { type: "string", description: "RFC exacto del contribuyente." },
+        },
+      },
     },
   },
   {
@@ -141,20 +160,58 @@ const YEAR_DEFAULT = 2026;
 // Ejecución de herramientas (SIEMPRE filtra por user.id)
 // --------------------------------------------------------------------------
 
+/** Resuelve a qué contribuyente de la cuenta se refiere `rfc` (Fase M14).
+ *
+ * `undefined` cuando no se pasó `rfc` — cuentas con un solo contribuyente no
+ * necesitan indicarlo, y ese es el caso más común. `null` cuando SÍ se pasó
+ * pero no corresponde a ningún RFC de la cuenta, que el llamador debe tratar
+ * como error del modelo (le pasó un RFC inventado), no como "sin filtro". */
+function resolverContribuyente(
+  rfcs: RfcDeCuenta[], rfc?: string,
+): RfcDeCuenta | null | undefined {
+  if (!rfc) return undefined;
+  const buscado = rfc.trim().toUpperCase();
+  return rfcs.find((r) => r.rfc.toUpperCase() === buscado) ?? null;
+}
+
 async function toolGetSummary(
-  supabase: SupabaseClient, user: AuthenticatedUser, year?: number, categoria?: string,
+  supabase: SupabaseClient, user: AuthenticatedUser, rfcs: RfcDeCuenta[],
+  year?: number, categoria?: string, rfc?: string,
 ): Promise<unknown> {
+  const contribuyente = resolverContribuyente(rfcs, rfc);
+  if (contribuyente === null) {
+    return { error: `No encontré el RFC ${rfc} en esta cuenta.` };
+  }
+
   const y = year ?? YEAR_DEFAULT;
   let query = supabase.schema("facturapp").from("invoices")
     .select("categoria, total").eq("user_id", user.id).eq("anio", y);
   if (categoria) query = query.eq("categoria", categoria);
+  if (contribuyente) query = query.eq("usuario_rfc", contribuyente.rfc);
 
   const { data, error } = await query;
   if (error) throw new Error(`Error consultando resumen: ${error.message}`);
+  const rows = data ?? [];
+
+  // Persona moral (Fase M14): NO se presenta como cédula de deducciones. El
+  // motor de este sistema implementa deducciones personales; darle a estas
+  // facturas una categoría o un "total deducible" sería un juicio que no
+  // estamos calificados para emitir — mismo razonamiento que en invoices.ts
+  // (archivarSinEvaluar) y en el dashboard.
+  if (contribuyente?.tipo === "moral") {
+    const total = rows.reduce((acc, r) => acc + (r.total || 0), 0);
+    return {
+      year: y, rfc: contribuyente.rfc, tipo: "moral",
+      num_facturas: rows.length, total_facturado: Math.round(total * 100) / 100,
+      mensaje: "Facturas de persona moral: se archivan, pero no evaluamos su " +
+        "deducibilidad — las reglas de personas morales son distintas a las " +
+        "de deducciones personales que este sistema sí valida.",
+    };
+  }
 
   const cedula: Record<string, { total: number; facturas: number }> = {};
   let totalGeneral = 0;
-  for (const row of data ?? []) {
+  for (const row of rows) {
     const cat = row.categoria || "Sin clasificar";
     const entry = cedula[cat] ?? { total: 0, facturas: 0 };
     entry.total = Math.round((entry.total + (row.total || 0)) * 100) / 100;
@@ -166,14 +223,20 @@ async function toolGetSummary(
 }
 
 async function toolListInvoices(
-  supabase: SupabaseClient, user: AuthenticatedUser,
-  year?: number, month?: number, categoria?: string,
+  supabase: SupabaseClient, user: AuthenticatedUser, rfcs: RfcDeCuenta[],
+  year?: number, month?: number, categoria?: string, rfc?: string,
 ): Promise<unknown> {
+  const contribuyente = resolverContribuyente(rfcs, rfc);
+  if (contribuyente === null) {
+    return { error: `No encontré el RFC ${rfc} en esta cuenta.` };
+  }
+
   const y = year ?? YEAR_DEFAULT;
   let query = supabase.schema("facturapp").from("invoices")
     .select("uuid_fiscal, emisor_nombre, fecha_emision, categoria, total, estatus")
     .eq("user_id", user.id).eq("anio", y);
   if (categoria) query = query.eq("categoria", categoria);
+  if (contribuyente) query = query.eq("usuario_rfc", contribuyente.rfc);
   query = query.order("fecha_emision", { ascending: false });
 
   const { data, error } = await query;
@@ -200,12 +263,23 @@ async function toolReclassifyInvoice(
 ): Promise<unknown> {
   const { data: inv, error: selectError } = await supabase
     .schema("facturapp").from("invoices")
-    .select("id, categoria")
+    .select("id, categoria, estatus")
     .eq("user_id", user.id).eq("uuid_fiscal", uuid.toUpperCase())
     .maybeSingle();
 
   if (selectError) throw new Error(`Error buscando factura: ${selectError.message}`);
   if (!inv) return { ok: false, mensaje: "No encontré esa factura en tu archivo." };
+
+  // Fase M14: una factura "archivada" es de un RFC de persona moral. No
+  // tiene categoría de deducción personal que reclasificar — permitirlo
+  // le pondría una categoría de deducción personal a un gasto empresarial.
+  if (inv.estatus === "archivada") {
+    return {
+      ok: false,
+      mensaje: "Esa factura es de una persona moral; no se clasifica en " +
+        "categorías de deducción personal.",
+    };
+  }
 
   const anterior = inv.categoria;
   const { error: updateError } = await supabase
@@ -220,12 +294,20 @@ async function toolReclassifyInvoice(
 /** MOCK — igual que export_zip() en export.py. No genera ningún ZIP real
  * (eso es Fase 4 del sistema original; no adelantarlo aquí). */
 async function toolExportPackage(
-  supabase: SupabaseClient, user: AuthenticatedUser, year?: number,
+  supabase: SupabaseClient, user: AuthenticatedUser, rfcs: RfcDeCuenta[],
+  year?: number, rfc?: string,
 ): Promise<unknown> {
+  const contribuyente = resolverContribuyente(rfcs, rfc);
+  if (contribuyente === null) {
+    return { error: `No encontré el RFC ${rfc} en esta cuenta.` };
+  }
+
   const y = year ?? YEAR_DEFAULT;
-  const { data, error } = await supabase
-    .schema("facturapp").from("invoices")
+  let query = supabase.schema("facturapp").from("invoices")
     .select("id").eq("user_id", user.id).eq("anio", y);
+  if (contribuyente) query = query.eq("usuario_rfc", contribuyente.rfc);
+
+  const { data, error } = await query;
   if (error) throw new Error(`Error consultando facturas para exportar: ${error.message}`);
   return { formato: "zip", archivos: (data ?? []).length, status: "mock_fase4" };
 }
@@ -235,20 +317,25 @@ function toolExplainDeductions(): unknown {
 }
 
 async function executeTool(
-  name: string, supabase: SupabaseClient, user: AuthenticatedUser, args: Record<string, unknown>,
+  name: string, supabase: SupabaseClient, user: AuthenticatedUser,
+  args: Record<string, unknown>, rfcs: RfcDeCuenta[],
 ): Promise<unknown> {
   switch (name) {
     case "get_summary":
-      return toolGetSummary(supabase, user, args.year as number | undefined, args.categoria as string | undefined);
+      return toolGetSummary(
+        supabase, user, rfcs,
+        args.year as number | undefined, args.categoria as string | undefined, args.rfc as string | undefined,
+      );
     case "list_invoices":
       return toolListInvoices(
-        supabase, user,
-        args.year as number | undefined, args.month as number | undefined, args.categoria as string | undefined,
+        supabase, user, rfcs,
+        args.year as number | undefined, args.month as number | undefined,
+        args.categoria as string | undefined, args.rfc as string | undefined,
       );
     case "reclassify_invoice":
       return toolReclassifyInvoice(supabase, user, (args.uuid as string) ?? "", (args.nueva_categoria as string) ?? "");
     case "export_package":
-      return toolExportPackage(supabase, user, args.year as number | undefined);
+      return toolExportPackage(supabase, user, rfcs, args.year as number | undefined, args.rfc as string | undefined);
     case "explain_deductions":
       return toolExplainDeductions();
     default:
@@ -286,6 +373,36 @@ function fechaEnMexico(hoy: Date): { texto: string; anio: number } {
   return { texto: formato.format(hoy), anio: Number.parseInt(partes, 10) };
 }
 
+/** Describe los contribuyentes de la cuenta al modelo (Fase M14).
+ *
+ * Vacío si hay uno solo (o ninguno): es el caso normal, y las herramientas ya
+ * se comportan igual que antes de M14 cuando no se pasa `rfc`. Con dos o más,
+ * el modelo necesita saber que existen para poder preguntar a cuál se
+ * refiere una pregunta ambigua — sin esto, "cuánto llevo" sumaría en
+ * silencio las deducciones de dos contribuyentes distintos, cada uno con su
+ * propia declaración. Es el mismo problema que resolvió el filtro `rfc` en
+ * `/api/summary` para el dashboard, llevado al chat.
+ */
+function buildContribuyentesPrompt(rfcs: RfcDeCuenta[]): string {
+  if (rfcs.length < 2) return "";
+  const lista = rfcs.map((r) => {
+    const nombre = r.alias ? `${r.alias} (${r.rfc})` : r.rfc;
+    const tipo = r.tipo === "moral" ? "persona moral" : "persona física";
+    return `- ${nombre}: ${tipo}${r.es_principal ? ", principal" : ""}`;
+  }).join("\n");
+  return (
+    "\n\nEsta cuenta administra las deducciones de más de un contribuyente:\n" +
+    lista +
+    "\n\nCuando el usuario pregunte por deducciones, facturas o pida " +
+    "reclasificar algo y no sea obvio a cuál contribuyente se refiere, " +
+    "PREGÚNTALE primero (usa el alias o los últimos dígitos del RFC) — no " +
+    "asumas ni mezcles a los dos. Al llamar a una herramienta, pasa el RFC " +
+    "exacto de la lista en el parámetro `rfc`. Recuerda: las facturas de una " +
+    "persona moral no tienen categorías de deducción personal ni se evalúa " +
+    "su deducibilidad."
+  );
+}
+
 /** Construye el prompt del sistema incluyendo la fecha de hoy.
  *
  * SIN esto, el modelo no sabe en qué fecha vive y resuelve las expresiones
@@ -298,14 +415,17 @@ function fechaEnMexico(hoy: Date): { texto: string; anio: number } {
  * corrige igual porque en una app fiscal una cifra equivocada con aspecto
  * de correcta es peor que un error visible.
  *
- * `hoy` es parámetro para poder probarlo con una fecha fija. */
-export function buildSystemPrompt(hoy: Date = new Date()): string {
+ * `hoy` es parámetro para poder probarlo con una fecha fija. `rfcs` es la
+ * lista de contribuyentes de la cuenta (Fase M14) — ver
+ * `buildContribuyentesPrompt`. */
+export function buildSystemPrompt(hoy: Date = new Date(), rfcs: RfcDeCuenta[] = []): string {
   const { texto, anio } = fechaEnMexico(hoy);
   return SYSTEM_PROMPT_BASE +
     ` Hoy es ${texto} (zona horaria de México). El año fiscal en curso es ` +
     `${anio}. Usa esa fecha para resolver referencias relativas como "este ` +
     `año", "el año pasado" o "este mes": NUNCA supongas la fecha. Si el ` +
-    `usuario no indica un año, asume ${anio}.`;
+    `usuario no indica un año, asume ${anio}.` +
+    buildContribuyentesPrompt(rfcs);
 }
 
 export class ChatServiceError extends Error {
@@ -405,9 +525,11 @@ export async function chat(
   chatCompletionFn: ChatCompletionFn,
   history: ChatHistoryMessage[] = [],
 ): Promise<ChatResult> {
+  const rfcs = await listarRfcs(supabase, user.id);
+
   // deno-lint-ignore no-explicit-any
   const messages: any[] = [
-    { role: "system", content: buildSystemPrompt() },
+    { role: "system", content: buildSystemPrompt(new Date(), rfcs) },
     ...history,
     { role: "user", content: message },
   ];
@@ -438,7 +560,7 @@ export async function chat(
       } catch {
         args = {};
       }
-      const result = await executeTool(name, supabase, user, args);
+      const result = await executeTool(name, supabase, user, args, rfcs);
       toolsUsed.push(name);
       messages.push({
         role: "tool", tool_call_id: tc.id, content: JSON.stringify(result),
