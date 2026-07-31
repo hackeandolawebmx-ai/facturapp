@@ -49,19 +49,23 @@ serve(async (req: Request) => {
       return jsonResponse({ detail: "JSON inválido" }, 400);
     }
 
-    const rfc = validateRfc(payload.rfc ?? "");
-    if (!rfc) {
-      return jsonResponse(
-        { detail: "RFC debe tener 13 caracteres alfanuméricos (formato: AAAA000000XXX)" },
-        422,
-      );
-    }
     if (payload.tipo !== "fisica" && payload.tipo !== "moral") {
       // Se exige explícito y no se adivina: de este valor depende si a las
       // facturas se les aplican reglas de deducción personal, y equivocarse
       // produce consejo fiscal falso.
       return jsonResponse(
         { detail: "Indica si el RFC es de persona 'fisica' o 'moral'" },
+        422,
+      );
+    }
+    // El tipo decide el formato esperado: 13 caracteres para persona física,
+    // 12 para persona moral (sin la inicial del apellido materno). Validar
+    // antes de saber el tipo habría rechazado cualquier RFC de empresa real.
+    const rfc = validateRfc(payload.rfc ?? "", payload.tipo);
+    if (!rfc) {
+      const formato = payload.tipo === "moral" ? "AAA000000XXX (12 caracteres)" : "AAAA000000XXX (13 caracteres)";
+      return jsonResponse(
+        { detail: `RFC de persona ${payload.tipo} inválido. Formato esperado: ${formato}` },
         422,
       );
     }
