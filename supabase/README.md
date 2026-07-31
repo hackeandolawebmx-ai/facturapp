@@ -24,7 +24,9 @@ no corre en ningún lado.
 | M7 | API que faltaba: `/auth/*`, `/api/user/profile`, `/api/summary`, `/api/invoices`, `/api/public/*` | ✅ |
 | M8 | Rate limiting de `/auth/login` con estado en Postgres | ✅ |
 | M9 | El webhook de SendGrid acepta el `multipart/form-data` real | ✅ |
-| **M10** | Verificación de origen en el webhook de SendGrid | ✅ Este documento |
+| M10 | Verificación de origen en el webhook de SendGrid | ✅ |
+| M11 | Dashboard web con login, y captura de RFC | ✅ |
+| **M12** | Alta y cambio de contraseña, con enlace entregado por WhatsApp | ✅ Este documento |
 
 ## Estructura
 
@@ -619,6 +621,60 @@ como "el token está mal construido". Se registró un usuario y se comprobó
 que sí era legible con un token firmado igual — solo entonces los `401`
 previos pasaron a ser evidencia de ausencia.
 
+## Plataforma web y credenciales (Fases M11 y M12)
+
+El dashboard vive en `web/dashboard.html` — un archivo estático, servido
+desde Cloudflare. **No puede vivir en una Edge Function**: Supabase reescribe
+a `text/plain` cualquier respuesta cuyo `Content-Type` haga que el navegador
+renderice HTML. Ver `web/README.md` para la comprobación y el porqué.
+
+### El hueco que hacía inalcanzable la web
+
+Las cuentas que se crean solas al recibir una factura por WhatsApp o correo
+nacen con `hashed_password` en null. No pueden iniciar sesión, y sin sesión
+no alcanzan ningún endpoint donde ponerse una contraseña. **Todo usuario que
+llegara por los canales principales del producto quedaba fuera de la web**,
+y la única entrada era editar la base a mano.
+
+`auth-set-password` lo resuelve con dos autorizaciones según el estado de la
+cuenta:
+
+- **Ya tiene contraseña** → hace falta el JWT *y* la contraseña actual.
+  Exigir la actual impide que un token robado se convierta en secuestro de
+  cuenta: con solo el token, un atacante fijaría una contraseña nueva y
+  dejaría fuera al dueño.
+- **No tiene todavía** → se acepta el `web_token` como prueba de
+  titularidad. Es la misma confianza que Python ya depositaba en ese token
+  (`/a/{token}` abría el archivo fiscal completo), pero acotada: solo sirve
+  para el arranque y deja de funcionar en cuanto existe una contraseña.
+
+El bot entrega el enlace: pedirlo por WhatsApp devuelve el enlace con token
+si la cuenta no tiene contraseña, o solo la dirección si ya la tiene —
+mandar el token en ese caso sería filtrar una credencial que ya no sirve. El
+dashboard borra el token de la URL al usarlo, para que no quede en el
+historial.
+
+Requiere el secreto `DASHBOARD_URL`. Sin él, el bot dice que la web no está
+lista en vez de mandar un enlace roto.
+
+### La captura de RFC arrastra una revalidación
+
+`accounts.py` afirmaba que "el usuario debe completar su RFC real desde su
+perfil", pero ese camino nunca existió: el perfil era de solo lectura. Como
+consecuencia, toda cuenta creada por canal conservaba su RFC sintético
+(`PEND...`) para siempre, y el validador marcaba `RFC_AJENO` en **cada**
+factura suya — un falso positivo del 100% sobre la regla que decide si un
+gasto es deducible.
+
+Al capturar el RFC no basta con guardarlo: los hallazgos se evalúan al
+ingerir y no se recalculan, así que las facturas archivadas quedaban con
+advertencias que se contradicen en pantalla ("Factura emitida a RFC X; no
+será deducible" junto a un encabezado que muestra X como el RFC del
+usuario). Por eso el `PATCH` del perfil recalcula ese hallazgo en las
+facturas ya guardadas. Solo ese: los demás (pago en efectivo, uso de CFDI,
+especialidad del emisor) no dependen del RFC del usuario, y la factura
+guardada no conserva todo lo que sus reglas necesitan.
+
 ## Rate limiting de `/auth/login` (Fase M8)
 
 Cierra la última brecha de seguridad conocida: hasta M7, `auth-login`
@@ -898,6 +954,11 @@ servicios reales** (Meta, OpenAI, Postgres), no solo contra tests:
 | Verificación de origen de SendGrid (M10) | sin credenciales, con Basic auth incorrecto y con query param incorrecto → `401`; con el secreto correcto por cualquiera de las dos vías → `200` |
 | **Correo real de punta a punta** | factura real enviada por correo a `facturas.<dominio>`, entregada por SendGrid Inbound Parse vía MX, parseada y guardada. Emisor no deducible → `Sin clasificar`, que es el resultado correcto |
 | **Los canales comparten cuenta** | factura ingresada por correo, consultada después por WhatsApp desde el mismo usuario: el bot responde con el monto correcto del año en curso |
+| Dashboard web (M11) | servido desde Cloudflare; login, cédula, archivo con filtros y captura de RFC |
+| Captura de RFC revalida lo archivado (M11) | la factura real pasó de `advertencia` con el hallazgo contradictorio a `valida` sin hallazgos |
+| Alta de contraseña con `web_token` (M12) | cuenta sin credenciales → login `401`; alta `200`; login `200`; el `web_token` deja de servir → `403` |
+| Cambio de contraseña (M12) | con la actual incorrecta `401`; con la correcta `200`; la anterior queda invalidada |
+| Enlace web por WhatsApp (M12) | cuenta con contraseña → solo la dirección; sin contraseña → enlace con `?token=`, verificado con el recorrido completo en el navegador |
 | WhatsApp: comando rápido (`hola`) | mensaje real desde un teléfono; responde sin llamar a OpenAI |
 | WhatsApp: chat conversacional (M4b) | mensaje real; `tools_used: [get_summary]`, leyendo de Postgres |
 | WhatsApp: ingesta de factura | XML real como adjunto; descargado de la Graph API, parseado, validado, clasificado y guardado |
@@ -948,8 +1009,20 @@ números registrados explícitamente como destinatarios (máximo 5).
 
 ## Qué NO se hizo todavía
 
-- ❌ **`/health`, `/privacy`, `/a/{token}` (páginas HTML)** — son páginas,
-  no API; fuera del alcance de esta migración.
+- ❌ **`/health` y `/privacy` (páginas HTML)** — no se portaron. `/a/{token}`
+  sí tiene sustituto: el dashboard de M11, con login en vez de acceso por
+  enlace.
+- ❌ **`export_package` es un stub expuesto al chat.** Devuelve
+  `{status: "mock_fase4"}`, así que si un usuario pide "expórtame mis
+  facturas" el modelo llama una herramienta que no exporta nada y contesta
+  algo impredecible. Una herramienta que aparenta funcionar es peor que una
+  ausente: el modelo no tiene forma de saber que miente. Quitarla de `TOOLS`
+  son dos líneas; implementarla es otra fase.
+- ❌ **No se pueden subir facturas desde la web** — solo entran por WhatsApp
+  o correo.
+- ❌ **`YEAR_DEFAULT` está fijo en 2026.** Hoy coincide con el año en curso;
+  en 2027 no. No se cambió a "año actual" porque no es una decisión técnica:
+  entre enero y abril se trabaja sobre la declaración del año anterior.
 - ⚠️ **El canal de correo funciona, pero el dominio configurado es de
   prueba.** Al mover el sistema a su dominio definitivo hay que cambiar el
   registro MX y el *Receiving Domain* en Inbound Parse. El código no se
@@ -1004,11 +1077,8 @@ medianoche del 31 de diciembre en México ya es 1 de enero en UTC — el
 momento exacto en que equivocar el ejercicio fiscal sale más caro. Hay un
 test sobre esa frontera.
 
-**Pendiente relacionado:** `YEAR_DEFAULT` sigue fijo en 2026. Hoy coincide
-con el año en curso, pero en 2027 no. No se cambió a "año actual" porque no
-es una decisión técnica: entre enero y abril la gente trabaja sobre la
-declaración del año *anterior*, así que el año en curso no es obviamente el
-default correcto.
+**Pendiente relacionado:** `YEAR_DEFAULT` sigue fijo en 2026 — ver la lista
+de "Qué NO se hizo todavía".
 
 ### Límite conocido de la suite de tests
 
