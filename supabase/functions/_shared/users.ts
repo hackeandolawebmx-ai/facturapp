@@ -222,18 +222,34 @@ export async function setUserPassword(
   return data !== null;
 }
 
-/** Recalcula el hallazgo RFC_AJENO en las facturas ya guardadas del usuario,
- * tras cambiar su RFC (Fase M11).
+/** Recalcula el hallazgo RFC_AJENO y reatribuye `usuario_rfc` en las
+ * facturas ya guardadas del usuario, tras cambiar su RFC (Fase M11, Fase
+ * M15).
  *
- * Devuelve cuántas facturas cambiaron. Ver `revalidarRfcAjeno()` en
- * validator.ts para el razonamiento de por qué solo se toca ese hallazgo.
+ * Reatribuir `usuario_rfc` es tan importante como recalcular el hallazgo, y
+ * hasta M15 no se hacía: una factura ingerida ANTES de que el usuario
+ * indicara su RFC quedaba archivada con el RFC sintético `PEND...` en esa
+ * columna para siempre, aunque `receptor_rfc` coincidiera con el RFC real
+ * que se acaba de confirmar. El hallazgo RFC_AJENO se limpiaba
+ * correctamente (se veía "válida" en la tabla), pero cualquier vista que
+ * filtrara por `usuario_rfc` — el resumen por contribuyente de M15 — no
+ * encontraba esa factura y mostraba el total en cero, aunque sí existiera.
+ * Se detectó exactamente así, con datos reales.
+ *
+ * Solo se reatribuye cuando `receptor_rfc` de la factura coincide con el
+ * `nuevoRfc` que se está confirmando — esa es la prueba de que la factura
+ * genuinamente pertenece a este RFC. Sin esa condición, cambiar el RFC
+ * principal podría robarle a otro contribuyente registrado (p. ej. la
+ * empresa) facturas que sí son suyas.
+ *
+ * Devuelve cuántas facturas cambiaron (por cualquiera de las dos razones).
  */
 export async function revalidarFacturasTrasCambioDeRfc(
   supabase: SupabaseClient, userId: number, nuevoRfc: string,
 ): Promise<number> {
   const { data, error } = await supabase
     .schema("facturapp").from("invoices")
-    .select("id, receptor_rfc, estatus, hallazgos")
+    .select("id, receptor_rfc, usuario_rfc, estatus, hallazgos")
     .eq("user_id", userId);
   if (error) throw new Error(`Error leyendo facturas para revalidar: ${error.message}`);
 
@@ -243,13 +259,29 @@ export async function revalidarFacturasTrasCambioDeRfc(
     const { hallazgos, estatus } = revalidarRfcAjeno(
       previos, factura.receptor_rfc ?? "", nuevoRfc,
     );
+
+    const receptorCoincide =
+      (factura.receptor_rfc ?? "").toUpperCase() === nuevoRfc.toUpperCase();
+    const nuevoUsuarioRfc = receptorCoincide ? nuevoRfc : factura.usuario_rfc;
+
+    const cambioHallazgos = estatus !== factura.estatus || hallazgos.length !== previos.length;
+    const cambioUsuarioRfc = nuevoUsuarioRfc !== factura.usuario_rfc;
     // Solo se escribe si algo cambió: evita reescribir toda la tabla en cada
     // guardado de RFC, que suele ser el mismo valor reconfirmado.
-    if (estatus === factura.estatus && hallazgos.length === previos.length) continue;
+    if (!cambioHallazgos && !cambioUsuarioRfc) continue;
+
+    const patch: Record<string, unknown> = {};
+    if (cambioHallazgos) {
+      patch.hallazgos = hallazgos;
+      patch.estatus = estatus;
+    }
+    if (cambioUsuarioRfc) {
+      patch.usuario_rfc = nuevoUsuarioRfc;
+    }
 
     const { error: updateError } = await supabase
       .schema("facturapp").from("invoices")
-      .update({ hallazgos, estatus })
+      .update(patch)
       .eq("id", factura.id);
     if (updateError) {
       throw new Error(`Error revalidando la factura ${factura.id}: ${updateError.message}`);

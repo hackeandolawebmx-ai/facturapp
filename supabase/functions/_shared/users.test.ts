@@ -192,9 +192,13 @@ Deno.test("rfcTomadoPorOtro: un RFC libre devuelve false", async () => {
 
 // deno-lint-ignore no-explicit-any
 function conFactura(supabase: any, id: number, userId: number, receptorRfc: string,
-                    estatus: string, hallazgos: unknown[]) {
+                    estatus: string, hallazgos: unknown[], usuarioRfc?: string) {
   supabase.tables.invoices.push({
     id, user_id: userId, receptor_rfc: receptorRfc, estatus, hallazgos,
+    // Simula el caso real que motivó la reatribución (Fase M15): una factura
+    // ingerida antes de que el usuario indicara su RFC queda con el
+    // sintético `PEND...` en usuario_rfc, aunque receptor_rfc sí sea el real.
+    usuario_rfc: usuarioRfc ?? "PENDVIEJO0000",
   });
 }
 
@@ -214,6 +218,18 @@ Deno.test("revalidar: limpia la advertencia de las facturas que ya son del usuar
   assertEquals(supabase.tables.invoices[0].hallazgos.length, 0);
 });
 
+Deno.test("revalidar: usuario_rfc queda en el RFC nuevo, no en el sintético viejo (Fase M15)", async () => {
+  // Este es el bug real: la factura se limpiaba (estatus "valida") pero
+  // quedaba con el usuario_rfc VIEJO -- así que un resumen filtrado por el
+  // RFC nuevo no la encontraba y mostraba el total en cero pese a existir.
+  const supabase = client();
+  conUsuario(supabase, 1, "AUCD870504PU0");
+  conFactura(supabase, 10, 1, "AUCD870504PU0", "advertencia", [HALLAZGO_AJENO], "PENDVIEJO0000");
+
+  await revalidarFacturasTrasCambioDeRfc(supabase, 1, "AUCD870504PU0");
+  assertEquals(supabase.tables.invoices[0].usuario_rfc, "AUCD870504PU0");
+});
+
 Deno.test("revalidar: no toca facturas realmente emitidas a otro RFC", async () => {
   const supabase = client();
   conUsuario(supabase, 1, "AUCD870504PU0");
@@ -222,6 +238,21 @@ Deno.test("revalidar: no toca facturas realmente emitidas a otro RFC", async () 
   const cambiadas = await revalidarFacturasTrasCambioDeRfc(supabase, 1, "AUCD870504PU0");
   assertEquals(cambiadas, 0);
   assertEquals(supabase.tables.invoices[0].estatus, "advertencia");
+  // Tampoco se le toca usuario_rfc: el receptor NO coincide con el nuevo
+  // RFC, así que no hay prueba de que esta factura sea suya.
+  assertEquals(supabase.tables.invoices[0].usuario_rfc, "PENDVIEJO0000");
+});
+
+Deno.test("revalidar: NO le roba a otro contribuyente una factura que sí es suya", async () => {
+  // La empresa (RFC moral) ya tiene su factura correctamente atribuida.
+  // Cambiar el RFC personal del usuario no debe reasignarla, porque su
+  // receptor_rfc es el de la empresa, no el nuevo RFC personal.
+  const supabase = client();
+  conUsuario(supabase, 1, "AUCD870504PU0");
+  conFactura(supabase, 10, 1, "EMP010101AB1", "archivada", [], "EMP010101AB1");
+
+  await revalidarFacturasTrasCambioDeRfc(supabase, 1, "AUCD870504PU0");
+  assertEquals(supabase.tables.invoices[0].usuario_rfc, "EMP010101AB1");
 });
 
 Deno.test("revalidar: no toca las facturas de otros usuarios", async () => {
