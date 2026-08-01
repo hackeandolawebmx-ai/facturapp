@@ -25,6 +25,7 @@ function seedInvoice(
     id: supabase.tables.invoices.length + 1,
     user_id: userId, uuid_fiscal: uuid, emisor_rfc: "AAA010101AAA",
     emisor_nombre: "Consultorio Dr. X", receptor_rfc: "DAXX860715XX0",
+    usuario_rfc: "DAXX860715XX0",
     fecha_emision: "2026-07-12", anio, subtotal: 1000.0, iva: 160.0, total,
     uso_cfdi: "D01", forma_pago: "04", metodo_pago: "PUE",
     clave_prod_principal: "85121800", concepto_descripcion: "Consulta",
@@ -69,6 +70,16 @@ Deno.test("listInvoicesForUser: devuelve el dict completo de cada factura", asyn
   assertEquals(result.invoices[0].uuid, "UUID-A");
   assertEquals(result.invoices[0].emisor_rfc, "AAA010101AAA");
   assertEquals(result.invoices[0].hallazgos, []);
+});
+
+Deno.test("listInvoicesForUser: incluye usuario_rfc (Fase M15)", async () => {
+  // Sin este campo, una vista combinada de varios contribuyentes no podría
+  // decir de quién es cada factura sin pedir el listado una vez por RFC.
+  const supabase = client();
+  seedInvoice(supabase, 1, "UUID-A");
+
+  const result = await listInvoicesForUser(supabase, 1, 2026);
+  assertEquals(result.invoices[0].usuario_rfc, "DAXX860715XX0");
 });
 
 // ---- reclassifyInvoiceById -----------------------------------------------------

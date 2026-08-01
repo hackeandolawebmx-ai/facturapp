@@ -7,6 +7,7 @@
 import type { SupabaseClient } from "jsr:@supabase/supabase-js@2";
 import { placeholderRfc } from "./accounts.ts";
 import { type Hallazgo, revalidarRfcAjeno } from "./validator.ts";
+import { sincronizarRfcPrincipal } from "./rfcs.ts";
 
 export interface AppUser {
   id: number;
@@ -159,7 +160,13 @@ export async function updateUserRfc(
     .select(PROFILE_COLS)
     .maybeSingle();
   if (error) throw new Error(`Error actualizando RFC: ${error.message}`);
-  return (data as UserProfile) ?? null;
+  if (!data) return null;
+
+  // Sin esto, listarRfcs() queda vacío para esta cuenta -- ver la nota en
+  // sincronizarRfcPrincipal() (rfcs.ts, Fase M15) para el porqué.
+  await sincronizarRfcPrincipal(supabase, userId, rfc);
+
+  return data as UserProfile;
 }
 
 export interface UserAuthRow {

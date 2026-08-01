@@ -86,6 +86,16 @@ export interface InvoiceDict {
    * ruta en Storage: al cliente solo le sirve saber si hay algo que
    * descargar, y publicar rutas internas no aporta nada. */
   tiene_pdf: boolean;
+  /** A cuál RFC de la cuenta está atribuida (Fase M15).
+   *
+   * Falta en el dict desde M7 pese a que la columna existe desde M4 y ya se
+   * usaba para filtrar (`.eq("usuario_rfc", rfc)`) — nunca se exponía porque
+   * hasta ahora nada la necesitaba: con un solo contribuyente por cuenta era
+   * redundante. Con varios, es lo único que permite al cliente mostrar una
+   * lista combinada y decir de quién es cada factura sin tener que pedir el
+   * mismo listado una vez por RFC.
+   */
+  usuario_rfc: string;
 }
 
 /** Port 1:1 de `list_invoices()` (endpoint REST) + `Invoice.to_dict()`. */
@@ -96,7 +106,7 @@ export async function listInvoicesForUser(
   let query = supabase
     .schema("facturapp").from("invoices")
     .select(
-      "id, uuid_fiscal, emisor_rfc, emisor_nombre, receptor_rfc, fecha_emision, anio, subtotal, iva, total, uso_cfdi, forma_pago, metodo_pago, clave_prod_principal, concepto_descripcion, categoria, confianza, estatus, hallazgos, pdf_path",
+      "id, uuid_fiscal, emisor_rfc, emisor_nombre, receptor_rfc, fecha_emision, anio, subtotal, iva, total, uso_cfdi, forma_pago, metodo_pago, clave_prod_principal, concepto_descripcion, categoria, confianza, estatus, hallazgos, pdf_path, usuario_rfc",
     )
     .eq("user_id", userId).eq("anio", year);
   if (rfc) query = query.eq("usuario_rfc", rfc);
@@ -125,6 +135,7 @@ export async function listInvoicesForUser(
     estatus: r.estatus,
     hallazgos: r.hallazgos ?? [],
     tiene_pdf: Boolean(r.pdf_path),
+    usuario_rfc: r.usuario_rfc,
   }));
   return { year, invoices };
 }

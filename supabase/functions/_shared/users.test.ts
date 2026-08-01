@@ -150,6 +150,20 @@ Deno.test("updateUserRfc: no toca a los demás usuarios", async () => {
   assertEquals(supabase.tables.users[1].rfc, "PEND222222222");
 });
 
+Deno.test("updateUserRfc: también sincroniza el RFC principal en user_rfcs", async () => {
+  // Fase M15: sin esto, listarRfcs() quedaba vacío para toda cuenta cuyo
+  // RFC se puso por este flujo -- el más común, ya que es el único que
+  // existía antes de M14 ("Falta tu RFC" en el dashboard).
+  const supabase = client();
+  conUsuario(supabase, 1, "PEND5AE3C89EC");
+
+  await updateUserRfc(supabase, 1, "AUCD870504PU0");
+
+  assertEquals(supabase.tables.user_rfcs.length, 1);
+  assertEquals(supabase.tables.user_rfcs[0].rfc, "AUCD870504PU0");
+  assertEquals(supabase.tables.user_rfcs[0].es_principal, true);
+});
+
 Deno.test("rfcTomadoPorOtro: detecta un RFC ya usado por otra cuenta", async () => {
   const supabase = client();
   conUsuario(supabase, 1, "PEND111111111");

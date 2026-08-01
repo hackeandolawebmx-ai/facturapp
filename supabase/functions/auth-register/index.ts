@@ -5,6 +5,7 @@ import { corsHeaders, jsonHeaders } from "../_shared/cors.ts";
 import { generateWebToken } from "../_shared/auth.ts";
 import { hashPassword } from "../_shared/passwords.ts";
 import { validateRfc } from "../_shared/rfc_validation.ts";
+import { sincronizarRfcPrincipal } from "../_shared/rfcs.ts";
 
 function getSupabaseClient() {
   return createClient(
@@ -101,6 +102,10 @@ async function handlePost(req: Request): Promise<Response> {
       console.error("Error insertando usuario:", insertError);
       return jsonResponse({ detail: "Error registrando usuario" }, 500);
     }
+
+    // Sin esto, listarRfcs() queda vacío para toda cuenta creada por esta
+    // vía -- ver la nota en sincronizarRfcPrincipal() (rfcs.ts, Fase M15).
+    await sincronizarRfcPrincipal(supabase, created.id, rfc);
 
     return jsonResponse({ user_id: created.id, message: "Registrado exitosamente" }, 201);
   } catch (err) {

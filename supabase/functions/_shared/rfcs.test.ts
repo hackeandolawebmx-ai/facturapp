@@ -9,6 +9,7 @@ import { assertEquals } from "jsr:@std/assert@1";
 import { FakeSupabaseClient } from "./fake_supabase_client.ts";
 import {
   agregarRfc, eliminarRfc, listarRfcs, type RfcDeCuenta, rfcQueRecibe,
+  sincronizarRfcPrincipal,
 } from "./rfcs.ts";
 
 // deno-lint-ignore no-explicit-any
@@ -126,4 +127,65 @@ Deno.test("eliminarRfc: el de otra cuenta no se toca", async () => {
   assertEquals(r.ok, false);
   assertEquals(r.motivo, "no_encontrado");
   assertEquals(supabase.tables.user_rfcs.length, 1);
+});
+
+// ---- sincronizarRfcPrincipal (Fase M15) -------------------------------------
+//
+// updateUserRfc() (perfil, M11) y auth-register (M7) tocan users.rfc
+// directamente y nunca escribieron en user_rfcs. Sin esto, listarRfcs()
+// queda vacío para la mayoría de las cuentas reales pese a tener un RFC
+// válido — solo el resumen por contribuyente (M15) lo hizo visible.
+
+Deno.test("sincronizarRfcPrincipal: crea el principal si la cuenta no tiene ninguno", async () => {
+  const supabase = client();
+  await sincronizarRfcPrincipal(supabase, 7, "AUCD870504PU0");
+
+  const rfcs = await listarRfcs(supabase, 7);
+  assertEquals(rfcs.length, 1);
+  assertEquals(rfcs[0].rfc, "AUCD870504PU0");
+  assertEquals(rfcs[0].tipo, "fisica");
+  assertEquals(rfcs[0].es_principal, true);
+});
+
+Deno.test("sincronizarRfcPrincipal: no le pone el alias 'Principal' (queda null)", async () => {
+  // A diferencia del backfill de la migración 0008, que sí lo hacía --
+  // redundante con la etiqueta que ya muestra la interfaz vía es_principal.
+  const supabase = client();
+  await sincronizarRfcPrincipal(supabase, 7, "AUCD870504PU0");
+
+  assertEquals((await listarRfcs(supabase, 7))[0].alias, null);
+});
+
+Deno.test("sincronizarRfcPrincipal: actualiza el principal existente en vez de duplicar", async () => {
+  const supabase = client();
+  conRfc(supabase, 1, 7, "AUCD870504PU0", "fisica", true);
+
+  await sincronizarRfcPrincipal(supabase, 7, "NUEVORFC010101AB1");
+
+  const rfcs = await listarRfcs(supabase, 7);
+  assertEquals(rfcs.length, 1);
+  assertEquals(rfcs[0].rfc, "NUEVORFC010101AB1");
+  assertEquals(rfcs[0].es_principal, true);
+});
+
+Deno.test("sincronizarRfcPrincipal: no toca los RFCs secundarios de la cuenta", async () => {
+  const supabase = client();
+  conRfc(supabase, 1, 7, "AUCD870504PU0", "fisica", true);
+  conRfc(supabase, 2, 7, "ABC010101AB1", "moral");
+
+  await sincronizarRfcPrincipal(supabase, 7, "OTRORFC020202CD2");
+
+  const rfcs = await listarRfcs(supabase, 7);
+  assertEquals(rfcs.length, 2);
+  assertEquals(rfcs.some((r) => r.rfc === "ABC010101AB1" && r.tipo === "moral"), true);
+});
+
+Deno.test("sincronizarRfcPrincipal: no afecta cuentas de otros usuarios", async () => {
+  const supabase = client();
+  conRfc(supabase, 1, 99, "AUCD870504PU0", "fisica", true);
+
+  await sincronizarRfcPrincipal(supabase, 7, "NUEVORFC010101AB1");
+
+  assertEquals((await listarRfcs(supabase, 99))[0].rfc, "AUCD870504PU0");
+  assertEquals((await listarRfcs(supabase, 7))[0].rfc, "NUEVORFC010101AB1");
 });
