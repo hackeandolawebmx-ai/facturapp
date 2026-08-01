@@ -229,16 +229,33 @@ export async function deleteInvoiceById(
  * numérico (PK), NO por `uuid_fiscal` (a diferencia de
  * `toolReclassifyInvoice` en chat.ts). Devuelve `null` si la factura no
  * existe o no pertenece al usuario (equivalente al 404 de Python). */
+export type ReclassifyResult =
+  | { ok: true; id: number; categoria: string }
+  | { ok: false; motivo: "no_encontrada" | "archivada" };
+
+/**
+ * Reclasifica una factura. Identifica por `id` numérico (PK), no por
+ * `uuid_fiscal` — así lo hace `reclassify()` en main.py.
+ *
+ * Rechaza reclasificar una factura `archivada` (Fase M15 — persona moral).
+ * `toolReclassifyInvoice` en chat.ts ya tenía esta misma protección; esta
+ * función, la que usa el endpoint REST, NO la tenía — un hueco real: antes
+ * de este cambio, el REST sí habría permitido ponerle "Médicos" a un gasto
+ * de una empresa, contaminando la cédula de deducciones personales con un
+ * monto que no le corresponde. Se detectó al construir el botón de
+ * reclasificar del dashboard, que iba a exponer justo ese hueco.
+ */
 export async function reclassifyInvoiceById(
   supabase: SupabaseClient, userId: number, invoiceId: number, nuevaCategoria: string,
-): Promise<{ id: number; categoria: string } | null> {
+): Promise<ReclassifyResult> {
   const { data: inv, error: selectError } = await supabase
     .schema("facturapp").from("invoices")
-    .select("id")
+    .select("id, estatus")
     .eq("id", invoiceId).eq("user_id", userId)
     .maybeSingle();
   if (selectError) throw new Error(`Error buscando factura: ${selectError.message}`);
-  if (!inv) return null;
+  if (!inv) return { ok: false, motivo: "no_encontrada" };
+  if (inv.estatus === "archivada") return { ok: false, motivo: "archivada" };
 
   const { error: updateError } = await supabase
     .schema("facturapp").from("invoices")
@@ -246,5 +263,5 @@ export async function reclassifyInvoiceById(
     .eq("id", invoiceId);
   if (updateError) throw new Error(`Error actualizando factura: ${updateError.message}`);
 
-  return { id: invoiceId, categoria: nuevaCategoria };
+  return { ok: true, id: invoiceId, categoria: nuevaCategoria };
 }

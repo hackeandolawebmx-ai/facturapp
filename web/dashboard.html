@@ -146,6 +146,21 @@
   .chip.seguros{background:#E9F2F2;color:#20565A}
   .chip.hipoteca{background:#F1EEE4;color:#5C5230}
 
+  /* select-categoria hereda .chip (mismos colores por categoría) pero es un
+     <select> real -- se le quita el estilo nativo del navegador para que no
+     rompa la apariencia de píldora, y se le agrega una flechita propia como
+     única pista de que es interactivo (un <select> sin ninguna, junto a
+     chips que sí son solo texto en otras filas -- las "archivada" -- podría
+     no leerse como algo en lo que se puede hacer clic). */
+  .select-categoria{border:none;font:inherit;font-weight:600;cursor:pointer;
+                    appearance:none;-webkit-appearance:none;-moz-appearance:none;
+                    padding-right:1.3rem;
+                    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath fill='%234A5568' d='M1 1l5 5 5-5'/%3E%3C/svg%3E");
+                    background-repeat:no-repeat;background-position:right .4rem center;
+                    background-size:.6rem}
+  .select-categoria:hover{filter:brightness(0.96)}
+  .select-categoria:focus-visible{outline:2px solid var(--tinta);outline-offset:1px}
+
   .estatus{display:inline-flex;align-items:center;gap:.35rem;font-size:.76rem;font-weight:600;padding:.2rem .6rem;border-radius:3px}
   .estatus::before{content:"";width:7px;height:7px;border-radius:50%}
   .estatus.valida{background:var(--sello-fondo);color:var(--sello)}
@@ -395,6 +410,15 @@
 
   var CHIP = { "Médicos": "medicos", "Colegiaturas": "colegiaturas",
                "Seguros GMM": "seguros", "Hipoteca": "hipoteca" };
+  // Opciones del selector de categoría (Fase M16). Las mismas 4 que conoce
+  // el clasificador automático, más "Sin clasificar" para poder revertir a
+  // ese estado. No es una lista arbitraria: reclasificar a cualquier otro
+  // texto libre sería posible por API pero no tendría chip ni cabría en
+  // ninguna regla de tope de deducción -- la UI limita a lo que el resto
+  // del sistema sabe interpretar.
+  var CATEGORIAS_RECLASIFICAR = [
+    "Sin clasificar", "Médicos", "Colegiaturas", "Seguros GMM", "Hipoteca",
+  ];
   var ESTATUS = { "valida": ["valida", "Válida"], "advertencia": ["advertencia", "Advertencia"],
                   "por_revisar": ["revisar", "Por revisar"], "rechazada": ["revisar", "Rechazada"],
                   // `archivada` no es un grado de problema: es "fuera del
@@ -984,6 +1008,28 @@
     return inv.usuario_rfc || "—";
   }
 
+  /** Celda de categoría: editable con un <select>, salvo en una factura
+   * "archivada" (persona moral), donde se muestra el chip fijo de siempre.
+   * No es solo cosmético -- el backend (reclassifyInvoiceById) YA rechaza
+   * ese caso con 409, así que ofrecer el control ahí produciría un error
+   * al primer intento en vez de simplemente no ofrecer algo que no aplica. */
+  function celdaCategoria(inv, chip) {
+    if (inv.estatus === "archivada") {
+      return '<span class="chip ' + chip + '">' +
+        escapeHtml(inv.categoria || "Sin clasificar") + '</span>';
+    }
+    var actual = inv.categoria || "Sin clasificar";
+    var opciones = CATEGORIAS_RECLASIFICAR.map(function (cat) {
+      var sel = cat === actual ? " selected" : "";
+      return '<option value="' + escapeHtml(cat) + '"' + sel + '>' +
+        escapeHtml(cat) + '</option>';
+    }).join("");
+    return '<select class="select-categoria chip ' + chip + '" data-id="' + inv.id +
+      '" data-anterior="' + escapeHtml(actual) + '" ' +
+      'aria-label="Categoría de la factura de ' + escapeHtml(inv.emisor_nombre) + '">' +
+      opciones + '</select>';
+  }
+
   function pintarTabla(lista) {
     var tb = $("tbody-facturas");
     var numColumnas = mostrarColumnaContribuyente ? 8 : 7;
@@ -1002,8 +1048,7 @@
         '<td class="emisor">' + escapeHtml(inv.emisor_nombre) +
           '<small>' + escapeHtml(inv.emisor_rfc) + '</small></td>' +
         '<td class="folio">' + escapeHtml(folioCorto(inv.uuid)) + '</td>' +
-        '<td><span class="chip ' + chip + '">' +
-          escapeHtml(inv.categoria || "Sin clasificar") + '</span></td>' +
+        '<td>' + celdaCategoria(inv, chip) + '</td>' +
         '<td><span class="estatus ' + est[0] + '">' + escapeHtml(est[1]) + '</span></td>' +
         '<td class="monto">' + money(inv.total) + '</td>' +
         (mostrarColumnaContribuyente
@@ -1117,6 +1162,48 @@
     } catch (e) {
       mostrarError("error-datos", "No se pudo conectar con el servidor.");
       btn.disabled = false;
+    }
+  });
+
+  // ---- Reclasificar una factura (Fase M16) ---------------------------------
+  //
+  // El endpoint va por ruta -- /api-invoices/{id}/reclassify?nueva_categoria=X
+  // -- no por query param como el resto, porque así identifica la factura
+  // reclassify() en la versión Python original y se mantuvo igual al portar.
+  //
+  // Se recarga todo con cargarDatos() en vez de solo actualizar el chip de
+  // esa fila: cambiar la categoría mueve montos entre líneas de la cédula, y
+  // esta es la forma más simple de mantener ambas cosas consistentes sin
+  // duplicar la lógica de sumas que ya vive en construirCedulaHtml.
+  $("tbody-facturas").addEventListener("change", async function (ev) {
+    var sel = ev.target.closest(".select-categoria");
+    if (!sel) return;
+
+    var categoriaAnterior = sel.dataset.anterior || sel.value;
+    var nuevaCategoria = sel.value;
+    sel.disabled = true;
+    mostrarError("error-datos", "");
+    try {
+      var resp = await pedir(
+        "/api-invoices/" + encodeURIComponent(sel.dataset.id) +
+          "/reclassify?nueva_categoria=" + encodeURIComponent(nuevaCategoria),
+        { method: "POST" },
+      );
+      if (!resp) return;
+      if (!resp.ok) {
+        var cuerpo = await resp.json();
+        mostrarError("error-datos", cuerpo.detail || "No se pudo reclasificar la factura.");
+        // Se revierte el <select> a lo que tenía antes: sin esto, el
+        // control quedaría mostrando una categoría que el servidor rechazó.
+        sel.value = categoriaAnterior;
+        sel.disabled = false;
+        return;
+      }
+      await cargarDatos();
+    } catch (e) {
+      mostrarError("error-datos", "No se pudo conectar con el servidor.");
+      sel.value = categoriaAnterior;
+      sel.disabled = false;
     }
   });
 

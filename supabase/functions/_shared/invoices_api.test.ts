@@ -89,17 +89,42 @@ Deno.test("reclassifyInvoiceById: identifica por id numérico, no por uuid", asy
   seedInvoice(supabase, 1, "UUID-X", 500, "Sin clasificar");
 
   const result = await reclassifyInvoiceById(supabase, 1, 1, "Médicos");
-  assertEquals(result, { id: 1, categoria: "Médicos" });
+  assertEquals(result, { ok: true, id: 1, categoria: "Médicos" });
   assertEquals(supabase.tables.invoices[0].categoria, "Médicos");
   assertEquals(supabase.tables.invoices[0].confianza, 1.0);
 });
 
-Deno.test("reclassifyInvoiceById: factura de otro usuario devuelve null (404)", async () => {
+Deno.test("reclassifyInvoiceById: factura de otro usuario -> no_encontrada (404)", async () => {
   const supabase = client();
   seedInvoice(supabase, 2, "UUID-X", 500);
 
   const result = await reclassifyInvoiceById(supabase, 1, 1, "Médicos");
-  assertEquals(result, null);
+  assertEquals(result, { ok: false, motivo: "no_encontrada" });
+});
+
+Deno.test("reclassifyInvoiceById: factura inexistente -> no_encontrada (404)", async () => {
+  const supabase = client();
+  assertEquals(await reclassifyInvoiceById(supabase, 1, 999, "Médicos"),
+    { ok: false, motivo: "no_encontrada" });
+});
+
+// ---- reclassifyInvoiceById: facturas archivadas (Fase M15) ------------------
+//
+// El gap real que esto cierra: sin esto, el REST sí habría dejado poner
+// "Médicos" a un gasto de una persona moral, contaminando la cédula de
+// deducciones personales. El chat (toolReclassifyInvoice) ya lo bloqueaba;
+// el REST no.
+
+Deno.test("reclassifyInvoiceById: rechaza reclasificar una factura archivada", async () => {
+  const supabase = client();
+  seedInvoice(supabase, 1, "UUID-EMPRESA", 8000);
+  supabase.tables.invoices[0].estatus = "archivada";
+  supabase.tables.invoices[0].categoria = null;
+
+  const result = await reclassifyInvoiceById(supabase, 1, 1, "Médicos");
+  assertEquals(result, { ok: false, motivo: "archivada" });
+  // No se tocó la factura.
+  assertEquals(supabase.tables.invoices[0].categoria, null);
 });
 
 // ---- getInvoiceXml (Fase M13) -----------------------------------------------

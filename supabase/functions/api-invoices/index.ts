@@ -58,10 +58,16 @@ async function handlePost(req: Request, userId: number, supabase: unknown): Prom
 
   // deno-lint-ignore no-explicit-any
   const result = await reclassifyInvoiceById(supabase as any, userId, invoiceId, nuevaCategoria);
-  if (!result) {
+  if (!result.ok) {
+    if (result.motivo === "archivada") {
+      return jsonResponse(
+        { detail: "Esa factura es de una persona moral; no se clasifica en categorías de deducción personal." },
+        409,
+      );
+    }
     return jsonResponse({ detail: "Factura no encontrada" }, 404);
   }
-  return jsonResponse(result, 200);
+  return jsonResponse({ id: result.id, categoria: result.categoria }, 200);
 }
 
 /** DELETE /api-invoices?id={id} (Fase M15).
