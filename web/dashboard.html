@@ -89,6 +89,14 @@
   .btn-quitar:hover{border-color:var(--guinda)}
   .ayuda{font-size:.76rem;color:var(--tinta-suave);margin-top:.35rem;line-height:1.45}
 
+  /* ---------- Varios contribuyentes (Fase M15) ---------- */
+  /* Solo aparece cuando se muestra más de una tarjeta a la vez (modo
+     "Todos"): con un único contribuyente sería ruido repetir su nombre
+     arriba de su propia cédula. */
+  .etiqueta-contribuyente{font-family:'IBM Plex Mono',monospace;font-size:.78rem;
+                          font-weight:600;color:var(--tinta-suave);
+                          margin:0 0 .5rem .1rem}
+
   /* ---------- Aviso de persona moral ---------- */
   .aviso-moral{background:#F3F0F7;border:1px solid #DCD3E8;border-left:4px solid #4C3570;
                border-radius:0 6px 6px 0;padding:1.1rem 1.3rem;margin-bottom:2rem}
@@ -294,9 +302,12 @@
   <header class="topbar">
     <div class="marca">Facturas<span>MX</span></div>
     <select class="selector-anio" id="selector-anio" aria-label="Ejercicio fiscal"></select>
-    <!-- Solo aparece cuando hay más de un contribuyente en la cuenta. No hay
-         opción "todos" a propósito: sumar las deducciones de dos personas en
-         una misma cédula sería atribuirle a alguien deducciones ajenas. -->
+    <!-- Solo aparece cuando hay más de un contribuyente en la cuenta. Incluye
+         "Todos" como opción por defecto: la tabla SÍ puede mostrar facturas de
+         varios contribuyentes juntas (solo lista, no suma nada), pero cada
+         contribuyente conserva su propia tarjeta de resumen -- nunca se
+         combinan sus deducciones en un solo total, porque cada quien declara
+         por separado y mezclarlos le atribuiría a alguien deducciones ajenas. -->
     <select class="selector-anio" id="selector-rfc"
             aria-label="Contribuyente" hidden></select>
     <div class="identidad">
@@ -325,27 +336,13 @@
       </div>
     </section>
 
-    <!-- Aviso para RFCs de persona moral. Sustituye a la cédula: presentar
-         una "cédula de deducciones" a una empresa daría a entender que estos
-         montos son deducibles según reglas que este sistema no evalúa. -->
-    <section class="aviso-moral" id="aviso-moral" hidden>
-      <h2 id="aviso-moral-titulo">Facturas de tu empresa</h2>
-      <p>
-        Aquí se archivan y puedes descargarlas, pero <strong>no evaluamos su
-        deducibilidad</strong>: las reglas de personas morales (Art. 25 LISR)
-        son distintas a las de deducciones personales, que es lo único que
-        este sistema valida. No las clasificamos ni las damos por deducibles.
-      </p>
-      <p class="aviso-moral-total" id="aviso-moral-total"></p>
-    </section>
-
-    <section class="cedula" id="seccion-cedula" aria-label="Cédula de deducciones">
-      <div class="cedula-encabezado">
-        <h1 class="cedula-titulo" id="cedula-titulo">Cédula de deducciones</h1>
-        <p class="cedula-nota" id="cedula-nota">Cargando…</p>
-      </div>
-      <div class="cedula-lineas" id="cedula-lineas"></div>
-    </section>
+    <!-- Una tarjeta por contribuyente (Fase M15): con un solo RFC en la
+         cuenta, esto renderiza exactamente una cédula, igual que antes. Con
+         varios, se apilan una cédula por cada RFC físico y un aviso de
+         "archivada, sin evaluar" por cada RFC moral -- nunca una combinada.
+         Se genera por completo en JS (pintarResumenes) porque el número de
+         tarjetas varía según la cuenta. -->
+    <div id="contenedor-resumenes"></div>
 
     <div class="filtros">
       <select class="filtro" id="filtro-mes" aria-label="Filtrar por mes"></select>
@@ -371,6 +368,9 @@
           <tr>
             <th>Fecha</th><th>Emisor</th><th>Folio fiscal</th>
             <th>Categoría</th><th>Estatus</th><th style="text-align:right">Monto</th>
+            <!-- Oculta salvo en modo "Todos" con más de un contribuyente: ver
+                 mostrarColumnaContribuyente en el script. -->
+            <th id="th-contribuyente" hidden>Contribuyente</th>
             <th>Archivo</th>
           </tr>
         </thead>
@@ -414,11 +414,15 @@
   var PANTALLAS = ["pantalla-acceso", "pantalla-alta", "pantalla-cambio",
                    "pantalla-rfcs", "pantalla-datos"];
 
-  // RFCs de la cuenta y cuál se está viendo. `rfcActivo` es null cuando la
-  // cuenta tiene uno solo (o ninguno): en ese caso no se filtra, que es el
-  // comportamiento anterior y es correcto.
+  // RFCs de la cuenta y cuál se está viendo. `rfcActivo` vacío ("") significa
+  // "Todos" -- el default cuando hay más de uno. Con 0 o 1 contribuyentes no
+  // hay nada que elegir: `rfcActivo` queda `null` y nunca se filtra por RFC,
+  // el comportamiento de siempre.
   var rfcs = [];
   var rfcActivo = null;
+  // Si la tabla muestra la columna "Contribuyente" -- solo en modo "Todos"
+  // con más de un RFC. Ver cargarDatos().
+  var mostrarColumnaContribuyente = false;
 
   function $(id) { return document.getElementById(id); }
 
@@ -665,11 +669,6 @@
 
   // ---- Contribuyentes -----------------------------------------------------
 
-  function rfcActivoEsMoral() {
-    var actual = rfcs.find(function (r) { return r.rfc === rfcActivo; });
-    return Boolean(actual && actual.tipo === "moral");
-  }
-
   function etiquetaRfc(r) {
     return (r.alias ? r.alias + " · " : "") + r.rfc;
   }
@@ -680,7 +679,8 @@
     rfcs = (await resp.json()).rfcs || [];
 
     var sel = $("selector-rfc");
-    // Con un solo contribuyente el selector no aporta nada y sí estorba.
+    // Con un solo contribuyente (o ninguno) el selector no aporta nada y sí
+    // estorba: no hay entre qué elegir.
     if (rfcs.length < 2) {
       sel.hidden = true;
       rfcActivo = null;
@@ -688,16 +688,19 @@
     }
     var previo = rfcActivo;
     sel.innerHTML = "";
+    var optTodos = document.createElement("option");
+    optTodos.value = "";
+    optTodos.textContent = "Todos los contribuyentes";
+    sel.appendChild(optTodos);
     rfcs.forEach(function (r) {
       var o = document.createElement("option");
       o.value = r.rfc;
       o.textContent = etiquetaRfc(r);
       sel.appendChild(o);
     });
-    // Se mantiene la selección si sigue existiendo; si no, el principal.
-    rfcActivo = rfcs.some(function (r) { return r.rfc === previo; })
-      ? previo
-      : (rfcs.find(function (r) { return r.es_principal; }) || rfcs[0]).rfc;
+    // Por defecto se ven todos juntos; se conserva la selección previa si el
+    // RFC elegido sigue existiendo entre los actuales.
+    rfcActivo = rfcs.some(function (r) { return r.rfc === previo; }) ? previo : "";
     sel.value = rfcActivo;
     sel.hidden = false;
   }
@@ -806,78 +809,130 @@
 
   async function cargarDatos() {
     mostrarError("error-datos", "");
-    $("cedula-nota").textContent = "Cargando…";
-    $("cedula-titulo").textContent = "Cédula de deducciones · " + anio;
 
-    // El filtro por RFC es lo que impide que la cédula sume las deducciones
-    // de dos contribuyentes distintos.
-    var filtroRfc = rfcActivo ? "&rfc=" + encodeURIComponent(rfcActivo) : "";
+    // Modo "Todos": más de un contribuyente y ninguno elegido en el
+    // selector. Ahí la tabla combina las facturas de todos (solo lista, no
+    // suma nada, así que no tiene el problema de atribuir mal una
+    // deducción) y por eso necesita la columna extra para decir de quién es
+    // cada fila.
+    var modoTodos = rfcs.length > 1 && !rfcActivo;
+    mostrarColumnaContribuyente = modoTodos;
+    $("th-contribuyente").hidden = !modoTodos;
+
+    // Con 0 o 1 contribuyentes NUNCA se filtra por RFC -- ni siquiera por el
+    // único que exista. Es deliberado: `usuario_rfc` de una factura ya
+    // archivada no se actualiza cuando el usuario cambia su RFC después
+    // (revalidarFacturasTrasCambioDeRfc solo toca hallazgos/estatus), así
+    // que filtrar por el RFC recién registrado ocultaría en silencio
+    // facturas más viejas que quedaron con un usuario_rfc distinto (p. ej.
+    // el RFC sintético `PEND...` de antes de que el usuario lo indicara).
+    var filtroTabla = (rfcs.length > 1 && rfcActivo)
+      ? "&rfc=" + encodeURIComponent(rfcActivo) : "";
+
     try {
-      var respS = await pedir("/api-summary?year=" + anio + filtroRfc);
-      var respF = await pedir("/api-invoices?year=" + anio + filtroRfc);
-      if (!respS || !respF) return;
-      if (!respS.ok || !respF.ok) {
-        mostrarError("error-datos", "No se pudieron cargar tus datos.");
-        $("cedula-nota").textContent = "";
+      var respF = await pedir("/api-invoices?year=" + anio + filtroTabla);
+      if (!respF) return;
+      if (!respF.ok) {
+        mostrarError("error-datos", "No se pudieron cargar tus facturas.");
         return;
       }
-      var resumen = await respS.json();
       var datos = await respF.json();
       facturas = datos.invoices || [];
-      pintarResumen(resumen);
+
+      if (rfcs.length <= 1) {
+        // Caso común: sin RFC registrado todavía, o exactamente uno. Un solo
+        // resumen sin filtrar -- el comportamiento de siempre.
+        var respS = await pedir("/api-summary?year=" + anio);
+        var s = (respS && respS.ok) ? await respS.json() : null;
+        pintarResumenes([{ rfc: rfcs[0] || null, resumen: s }]);
+      } else if (rfcActivo) {
+        var respS2 = await pedir("/api-summary?year=" + anio +
+                                 "&rfc=" + encodeURIComponent(rfcActivo));
+        var s2 = (respS2 && respS2.ok) ? await respS2.json() : null;
+        var elegido = rfcs.find(function (r) { return r.rfc === rfcActivo; });
+        pintarResumenes([{ rfc: elegido, resumen: s2 }]);
+      } else {
+        // "Todos": un resumen POR CONTRIBUYENTE, nunca uno combinado --
+        // cada quien declara por separado.
+        var resumenes = await Promise.all(rfcs.map(async function (r) {
+          var resp = await pedir("/api-summary?year=" + anio +
+                                 "&rfc=" + encodeURIComponent(r.rfc));
+          var sr = (resp && resp.ok) ? await resp.json() : null;
+          return { rfc: r, resumen: sr };
+        }));
+        pintarResumenes(resumenes);
+      }
+
       poblarCategorias();
       aplicarFiltros();
     } catch (e) {
       mostrarError("error-datos", "No se pudo conectar con el servidor.");
-      $("cedula-nota").textContent = "";
     }
   }
 
-  /** Elige entre cédula de deducciones y aviso de persona moral.
-   *
-   * Presentarle una "cédula de deducciones" a una empresa daría a entender
+  /** Una tarjeta por contribuyente: cédula si es persona física, aviso de
+   * "archivada, sin evaluar" si es moral. Con un solo contribuyente (el
+   * caso normal) no se muestra ningún encabezado con su nombre -- sería
+   * ruido para algo que ya es obvio. Con varios, cada tarjeta se rotula. */
+  function pintarResumenes(items) {
+    var multiples = items.length > 1;
+    var html = items.map(function (item) {
+      var titulo = (multiples && item.rfc)
+        ? '<p class="etiqueta-contribuyente">' + escapeHtml(etiquetaRfc(item.rfc)) + '</p>'
+        : '';
+      if (item.rfc && item.rfc.tipo === "moral") {
+        return titulo + construirAvisoMoralHtml(item.resumen, item.rfc);
+      }
+      return titulo + construirCedulaHtml(item.resumen);
+    }).join("");
+    $("contenedor-resumenes").innerHTML = html;
+  }
+
+  /** Presentar una "cédula de deducciones" a una empresa daría a entender
    * que esos montos son deducibles bajo reglas que este sistema no evalúa.
-   * Para una moral se muestra el total archivado y se dice explícitamente
-   * que no hay juicio de deducibilidad. */
-  function pintarResumen(s) {
-    if (rfcActivoEsMoral()) {
-      $("seccion-cedula").hidden = true;
-      $("aviso-moral").hidden = false;
-      var n = s.num_facturas || 0;
-      $("aviso-moral-titulo").textContent = "Facturas de tu empresa · " + anio;
-      $("aviso-moral-total").textContent =
-        n + " factura" + (n === 1 ? "" : "s") + " archivada" + (n === 1 ? "" : "s") +
-        " · " + money(s.total_general) + " en total facturado";
-      return;
-    }
-    $("aviso-moral").hidden = true;
-    $("seccion-cedula").hidden = false;
-    pintarCedula(s);
+   * Se muestra en cambio el total archivado, con la limitación explícita. */
+  function construirAvisoMoralHtml(s, rfc) {
+    var n = s ? (s.num_facturas || 0) : 0;
+    var nombre = rfc.alias ? escapeHtml(rfc.alias) : "tu empresa";
+    return '<section class="aviso-moral" aria-label="Facturas de ' + nombre + '">' +
+      '<h2>Facturas de ' + nombre + ' · ' + anio + '</h2>' +
+      '<p>Aquí se archivan y puedes descargarlas, pero <strong>no evaluamos su ' +
+      'deducibilidad</strong>: las reglas de personas morales (Art. 25 LISR) son ' +
+      'distintas a las de deducciones personales, que es lo único que este ' +
+      'sistema valida. No las clasificamos ni las damos por deducibles.</p>' +
+      '<p class="aviso-moral-total">' + n + ' factura' + (n === 1 ? '' : 's') +
+      ' archivada' + (n === 1 ? '' : 's') + ' · ' + money(s ? s.total_general : 0) +
+      ' en total facturado</p>' +
+    '</section>';
   }
 
-  function pintarCedula(s) {
-    var cont = $("cedula-lineas");
-    var cats = s.categorias || {};
+  function construirCedulaHtml(s) {
+    var cats = (s && s.categorias) || {};
     var nombres = Object.keys(cats);
-    var html = "";
+    var lineas = "";
     if (!nombres.length) {
-      html = '<p class="vacio">Todavía no hay facturas archivadas en ' + anio + '.</p>';
+      lineas = '<p class="vacio">Todavía no hay facturas archivadas en ' + anio + '.</p>';
     } else {
       nombres.forEach(function (cat) {
         var c = cats[cat];
-        html += '<div class="linea"><span class="linea-cat">' + escapeHtml(cat) + '</span>' +
+        lineas += '<div class="linea"><span class="linea-cat">' + escapeHtml(cat) + '</span>' +
                 '<span class="linea-num">' + c.facturas + ' factura' +
                 (c.facturas === 1 ? '' : 's') + '</span>' +
                 '<span class="linea-monto">' + money(c.total) + '</span></div>';
       });
-      html += '<div class="linea total"><span class="linea-cat">Total acumulado</span>' +
+      lineas += '<div class="linea total"><span class="linea-cat">Total acumulado</span>' +
               '<span class="linea-num"></span><span class="linea-monto">' +
               money(s.total_general) + '</span></div>';
     }
-    cont.innerHTML = html;
-    var n = s.num_facturas || 0;
-    $("cedula-nota").textContent = n + " factura" + (n === 1 ? "" : "s") + " archivada" +
-      (n === 1 ? "" : "s");
+    var n = s ? (s.num_facturas || 0) : 0;
+    var nota = n + " factura" + (n === 1 ? "" : "s") + " archivada" + (n === 1 ? "" : "s");
+    return '<section class="cedula" aria-label="Cédula de deducciones">' +
+      '<div class="cedula-encabezado">' +
+        '<h1 class="cedula-titulo">Cédula de deducciones · ' + anio + '</h1>' +
+        '<p class="cedula-nota">' + nota + '</p>' +
+      '</div>' +
+      '<div class="cedula-lineas">' + lineas + '</div>' +
+    '</section>';
   }
 
   function poblarCategorias() {
@@ -918,10 +973,23 @@
   });
   $("buscador").addEventListener("input", aplicarFiltros);
 
+  /** Alias/RFC del contribuyente al que pertenece una factura, para la
+   * columna "Contribuyente" del modo "Todos". Si `usuario_rfc` no coincide
+   * con ninguno de los RFCs conocidos hoy -- puede pasar con facturas viejas
+   * de antes de tener varios contribuyentes registrados -- se muestra el RFC
+   * crudo en vez de fallar o dejarlo en blanco. */
+  function etiquetaContribuyenteDe(inv) {
+    var r = rfcs.find(function (x) { return x.rfc === inv.usuario_rfc; });
+    if (r) return r.alias || r.rfc;
+    return inv.usuario_rfc || "—";
+  }
+
   function pintarTabla(lista) {
     var tb = $("tbody-facturas");
+    var numColumnas = mostrarColumnaContribuyente ? 8 : 7;
     if (!lista.length) {
-      tb.innerHTML = '<tr><td colspan="7">Ninguna factura coincide con los filtros.</td></tr>';
+      tb.innerHTML = '<tr><td colspan="' + numColumnas +
+        '">Ninguna factura coincide con los filtros.</td></tr>';
       $("pie-conteo").textContent = "";
       return;
     }
@@ -938,6 +1006,9 @@
           escapeHtml(inv.categoria || "Sin clasificar") + '</span></td>' +
         '<td><span class="estatus ' + est[0] + '">' + escapeHtml(est[1]) + '</span></td>' +
         '<td class="monto">' + money(inv.total) + '</td>' +
+        (mostrarColumnaContribuyente
+          ? '<td>' + escapeHtml(etiquetaContribuyenteDe(inv)) + '</td>'
+          : '') +
         '<td class="acciones">' +
           '<button class="btn-archivo" data-tipo="xml" data-id="' + inv.id +
             '" data-uuid="' + escapeHtml(inv.uuid) + '">XML</button>' +
@@ -951,7 +1022,7 @@
         '</td>' +
       '</tr>';
       if (inv.hallazgos && inv.hallazgos.length) {
-        fila += '<tr class="detalle-advertencia"><td colspan="7">' +
+        fila += '<tr class="detalle-advertencia"><td colspan="' + numColumnas + '">' +
           inv.hallazgos.map(function (h) {
             return '<span class="caja">' + escapeHtml(h.mensaje) + '</span>';
           }).join(' ') + '</td></tr>';
