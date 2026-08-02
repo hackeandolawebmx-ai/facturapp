@@ -93,38 +93,6 @@
   .btn-quitar:hover{border-color:var(--guinda)}
   .ayuda{font-size:.76rem;color:var(--tinta-suave);margin-top:.35rem;line-height:1.45}
 
-  /* ---------- Varios contribuyentes (Fase M15) ---------- */
-  /* Solo aparece cuando se muestra más de una tarjeta a la vez (modo
-     "Todos"): con un único contribuyente sería ruido repetir su nombre
-     arriba de su propia cédula. */
-  .etiqueta-contribuyente{font-family:'IBM Plex Mono',monospace;font-size:.78rem;
-                          font-weight:600;color:var(--tinta-suave);
-                          margin:0 0 .5rem .1rem}
-
-  /* ---------- Aviso de persona moral ---------- */
-  .aviso-moral{background:#F3F0F7;border:1px solid #DCD3E8;border-left:4px solid #4C3570;
-               border-radius:0 6px 6px 0;padding:1.1rem 1.3rem;margin-bottom:2rem}
-  .aviso-moral h2{font-family:'IBM Plex Serif',serif;font-size:1.15rem;color:#4C3570;
-                  margin-bottom:.4rem}
-  .aviso-moral p{font-size:.85rem;color:var(--tinta-suave)}
-  .aviso-moral-total{font-family:'IBM Plex Mono',monospace;font-size:.9rem;
-                     color:var(--tinta);margin-top:.7rem}
-
-  /* ---------- Cédula ---------- */
-  .cedula{background:var(--blanco);border:1px solid var(--regla);border-radius:6px;box-shadow:var(--sombra);margin-bottom:2rem;overflow:hidden}
-  .cedula-encabezado{display:flex;align-items:baseline;justify-content:space-between;gap:1rem;padding:1.1rem 1.5rem .6rem;flex-wrap:wrap}
-  .cedula-titulo{font-family:'IBM Plex Serif',serif;font-weight:600;font-size:1.35rem}
-  .cedula-nota{font-size:.8rem;color:var(--tinta-suave)}
-  .cedula-lineas{padding:0 1.5rem 1.3rem}
-  .linea{display:grid;grid-template-columns:1fr auto auto;align-items:baseline;gap:1rem;padding:.55rem 0;border-top:1px dotted var(--regla)}
-  .linea:first-child{border-top:none}
-  .linea-cat{font-size:.92rem}
-  .linea-num{font-size:.75rem;color:var(--tinta-suave)}
-  .linea-monto{font-family:'IBM Plex Mono',monospace;font-size:.95rem;text-align:right;min-width:7.5rem}
-  .linea.total{border-top:2px solid var(--tinta);margin-top:.3rem;padding-top:.75rem;font-weight:600}
-  .linea.total .linea-monto{font-weight:500;font-size:1.05rem}
-  .vacio{padding:.6rem 0;font-size:.88rem;color:var(--tinta-suave)}
-
   /* ---------- Filtros ---------- */
   .filtros{display:flex;gap:.6rem;flex-wrap:wrap;margin-bottom:1rem;align-items:center}
   .filtro{border:1px solid var(--regla);background:var(--blanco);border-radius:4px;padding:.45rem .7rem;font-size:.85rem;color:var(--tinta);font-family:inherit}
@@ -196,9 +164,6 @@
 
   @media (max-width:640px){
     .contenido{padding:1.2rem 1rem 3rem}
-    .cedula-encabezado,.cedula-lineas{padding-left:1rem;padding-right:1rem}
-    .linea{grid-template-columns:1fr auto}
-    .linea-num{display:none}
   }
 </style>
 </head>
@@ -354,13 +319,6 @@
       </div>
     </section>
 
-    <!-- Una tarjeta por contribuyente (Fase M15): con un solo RFC en la
-         cuenta, esto renderiza exactamente una cédula, igual que antes. Con
-         varios, se apilan una cédula por cada RFC físico y un aviso de
-         "archivada, sin evaluar" por cada RFC moral -- nunca una combinada.
-         Se genera por completo en JS (pintarResumenes) porque el número de
-         tarjetas varía según la cuenta. -->
-    <div id="contenedor-resumenes"></div>
 
     <div class="filtros">
       <select class="filtro" id="filtro-mes" aria-label="Filtrar por mes"></select>
@@ -858,6 +816,8 @@
     var filtroTabla = (rfcs.length > 1 && rfcActivo)
       ? "&rfc=" + encodeURIComponent(rfcActivo) : "";
 
+    // Sin tarjetas de resumen (se quitaron a pedido explícito): esta
+    // función ya no pide /api-summary en absoluto, solo la tabla.
     try {
       var respF = await pedir("/api-invoices?year=" + anio + filtroTabla);
       if (!respF) return;
@@ -868,100 +828,11 @@
       var datos = await respF.json();
       facturas = datos.invoices || [];
 
-      if (rfcs.length <= 1) {
-        // Caso común: sin RFC registrado todavía, o exactamente uno. Un solo
-        // resumen sin filtrar -- el comportamiento de siempre.
-        var respS = await pedir("/api-summary?year=" + anio);
-        var s = (respS && respS.ok) ? await respS.json() : null;
-        pintarResumenes([{ rfc: rfcs[0] || null, resumen: s }]);
-      } else if (rfcActivo) {
-        var respS2 = await pedir("/api-summary?year=" + anio +
-                                 "&rfc=" + encodeURIComponent(rfcActivo));
-        var s2 = (respS2 && respS2.ok) ? await respS2.json() : null;
-        var elegido = rfcs.find(function (r) { return r.rfc === rfcActivo; });
-        pintarResumenes([{ rfc: elegido, resumen: s2 }]);
-      } else {
-        // "Todos": un resumen POR CONTRIBUYENTE, nunca uno combinado --
-        // cada quien declara por separado.
-        var resumenes = await Promise.all(rfcs.map(async function (r) {
-          var resp = await pedir("/api-summary?year=" + anio +
-                                 "&rfc=" + encodeURIComponent(r.rfc));
-          var sr = (resp && resp.ok) ? await resp.json() : null;
-          return { rfc: r, resumen: sr };
-        }));
-        pintarResumenes(resumenes);
-      }
-
       poblarCategorias();
       aplicarFiltros();
     } catch (e) {
       mostrarError("error-datos", "No se pudo conectar con el servidor.");
     }
-  }
-
-  /** Una tarjeta por contribuyente: cédula si es persona física, aviso de
-   * "archivada, sin evaluar" si es moral. Con un solo contribuyente (el
-   * caso normal) no se muestra ningún encabezado con su nombre -- sería
-   * ruido para algo que ya es obvio. Con varios, cada tarjeta se rotula. */
-  function pintarResumenes(items) {
-    var multiples = items.length > 1;
-    var html = items.map(function (item) {
-      var titulo = (multiples && item.rfc)
-        ? '<p class="etiqueta-contribuyente">' + escapeHtml(etiquetaRfc(item.rfc)) + '</p>'
-        : '';
-      if (item.rfc && item.rfc.tipo === "moral") {
-        return titulo + construirAvisoMoralHtml(item.resumen, item.rfc);
-      }
-      return titulo + construirCedulaHtml(item.resumen);
-    }).join("");
-    $("contenedor-resumenes").innerHTML = html;
-  }
-
-  /** Presentar una "cédula de deducciones" a una empresa daría a entender
-   * que esos montos son deducibles bajo reglas que este sistema no evalúa.
-   * Se muestra en cambio el total archivado, con la limitación explícita. */
-  function construirAvisoMoralHtml(s, rfc) {
-    var n = s ? (s.num_facturas || 0) : 0;
-    var nombre = rfc.alias ? escapeHtml(rfc.alias) : "tu empresa";
-    return '<section class="aviso-moral" aria-label="Facturas de ' + nombre + '">' +
-      '<h2>Facturas de ' + nombre + ' · ' + anio + '</h2>' +
-      '<p>Aquí se archivan y puedes descargarlas, pero <strong>no evaluamos su ' +
-      'deducibilidad</strong>: las reglas de personas morales (Art. 25 LISR) son ' +
-      'distintas a las de deducciones personales, que es lo único que este ' +
-      'sistema valida. No las clasificamos ni las damos por deducibles.</p>' +
-      '<p class="aviso-moral-total">' + n + ' factura' + (n === 1 ? '' : 's') +
-      ' archivada' + (n === 1 ? '' : 's') + ' · ' + money(s ? s.total_general : 0) +
-      ' en total facturado</p>' +
-    '</section>';
-  }
-
-  function construirCedulaHtml(s) {
-    var cats = (s && s.categorias) || {};
-    var nombres = Object.keys(cats);
-    var lineas = "";
-    if (!nombres.length) {
-      lineas = '<p class="vacio">Todavía no hay facturas archivadas en ' + anio + '.</p>';
-    } else {
-      nombres.forEach(function (cat) {
-        var c = cats[cat];
-        lineas += '<div class="linea"><span class="linea-cat">' + escapeHtml(cat) + '</span>' +
-                '<span class="linea-num">' + c.facturas + ' factura' +
-                (c.facturas === 1 ? '' : 's') + '</span>' +
-                '<span class="linea-monto">' + money(c.total) + '</span></div>';
-      });
-      lineas += '<div class="linea total"><span class="linea-cat">Total acumulado</span>' +
-              '<span class="linea-num"></span><span class="linea-monto">' +
-              money(s.total_general) + '</span></div>';
-    }
-    var n = s ? (s.num_facturas || 0) : 0;
-    var nota = n + " factura" + (n === 1 ? "" : "s") + " archivada" + (n === 1 ? "" : "s");
-    return '<section class="cedula" aria-label="Cédula de deducciones">' +
-      '<div class="cedula-encabezado">' +
-        '<h1 class="cedula-titulo">Cédula de deducciones · ' + anio + '</h1>' +
-        '<p class="cedula-nota">' + nota + '</p>' +
-      '</div>' +
-      '<div class="cedula-lineas">' + lineas + '</div>' +
-    '</section>';
   }
 
   function poblarCategorias() {
@@ -1165,9 +1036,8 @@
         return;
       }
       // Se recarga desde el servidor en vez de solo quitar la fila del DOM:
-      // borrar cambia los totales de la cédula, y esta es la forma más
-      // simple de mantener ambas cosas consistentes sin duplicar la lógica
-      // de sumas que ya vive en pintarResumen/pintarCedula.
+      // más simple que mantener el conteo del pie y los filtros sincronizados
+      // a mano tras un borrado.
       await cargarDatos();
     } catch (e) {
       mostrarError("error-datos", "No se pudo conectar con el servidor.");
@@ -1182,9 +1052,8 @@
   // reclassify() en la versión Python original y se mantuvo igual al portar.
   //
   // Se recarga todo con cargarDatos() en vez de solo actualizar el chip de
-  // esa fila: cambiar la categoría mueve montos entre líneas de la cédula, y
-  // esta es la forma más simple de mantener ambas cosas consistentes sin
-  // duplicar la lógica de sumas que ya vive en construirCedulaHtml.
+  // esa fila: así el filtro de categoría y el resto de la tabla quedan
+  // consistentes con el cambio sin duplicar esa lógica en dos lugares.
   $("tbody-facturas").addEventListener("change", async function (ev) {
     var sel = ev.target.closest(".select-categoria");
     if (!sel) return;
