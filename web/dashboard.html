@@ -134,11 +134,10 @@
   tbody td{padding:.75rem .9rem;border-bottom:1px dotted var(--regla);font-size:.88rem;vertical-align:middle}
   tbody tr:last-child td{border-bottom:none}
   tbody tr:hover{background:var(--papel)}
-  .fecha,.monto,.folio{font-family:'IBM Plex Mono',monospace;font-size:.82rem}
+  .fecha,.monto,.folio,.rfc-col{font-family:'IBM Plex Mono',monospace;font-size:.82rem}
   .monto{text-align:right;white-space:nowrap}
-  .folio{color:var(--tinta-suave)}
+  .folio,.rfc-col{color:var(--tinta-suave)}
   .emisor{font-weight:500}
-  .emisor small{display:block;font-weight:400;color:var(--tinta-suave);font-size:.76rem}
 
   .chip{display:inline-block;font-size:.72rem;font-weight:600;padding:.18rem .55rem;border-radius:99px;white-space:nowrap;background:#EDEAE3;color:var(--tinta-suave)}
   .chip.medicos{background:#E8EDF5;color:#28406B}
@@ -381,7 +380,9 @@
       <table>
         <thead>
           <tr>
-            <th>Fecha</th><th>Emisor</th><th>Folio fiscal</th>
+            <th>Fecha</th><th>Emisor</th>
+            <th>RFC emisor</th><th>RFC receptor</th>
+            <th>Folio fiscal</th>
             <th>Categoría</th><th>Estatus</th><th style="text-align:right">Monto</th>
             <!-- Oculta salvo en modo "Todos" con más de un contribuyente: ver
                  mostrarColumnaContribuyente en el script. -->
@@ -984,7 +985,11 @@
       if (cat && f.categoria !== cat) return false;
       if (est && f.estatus !== est) return false;
       if (q) {
-        var heno = [f.emisor_nombre, f.emisor_rfc, f.uuid].join(" ").toLowerCase();
+        // Incluye receptor_rfc: ahora que tiene su propia columna visible,
+        // el usuario espera poder buscar por cualquiera de los dos RFCs,
+        // no solo el del emisor.
+        var heno = [f.emisor_nombre, f.emisor_rfc, f.receptor_rfc, f.uuid]
+          .join(" ").toLowerCase();
         if (heno.indexOf(q) === -1) return false;
       }
       return true;
@@ -1032,7 +1037,9 @@
 
   function pintarTabla(lista) {
     var tb = $("tbody-facturas");
-    var numColumnas = mostrarColumnaContribuyente ? 8 : 7;
+    // Base 9 desde que RFC emisor y RFC receptor tienen columna propia
+    // (antes el RFC del emisor iba como texto pequeño bajo su nombre).
+    var numColumnas = mostrarColumnaContribuyente ? 10 : 9;
     if (!lista.length) {
       tb.innerHTML = '<tr><td colspan="' + numColumnas +
         '">Ninguna factura coincide con los filtros.</td></tr>';
@@ -1045,8 +1052,9 @@
       var marca = est[0] === "advertencia" ? ' class="fila-advertencia"' : '';
       var fila = '<tr' + marca + '>' +
         '<td class="fecha">' + fechaCorta(inv.fecha_emision) + '</td>' +
-        '<td class="emisor">' + escapeHtml(inv.emisor_nombre) +
-          '<small>' + escapeHtml(inv.emisor_rfc) + '</small></td>' +
+        '<td class="emisor">' + escapeHtml(inv.emisor_nombre) + '</td>' +
+        '<td class="rfc-col">' + escapeHtml(inv.emisor_rfc || "—") + '</td>' +
+        '<td class="rfc-col">' + escapeHtml(inv.receptor_rfc || "—") + '</td>' +
         '<td class="folio">' + escapeHtml(folioCorto(inv.uuid)) + '</td>' +
         '<td>' + celdaCategoria(inv, chip) + '</td>' +
         '<td><span class="estatus ' + est[0] + '">' + escapeHtml(est[1]) + '</span></td>' +
