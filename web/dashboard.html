@@ -26,6 +26,17 @@
   .marca{font-family:'IBM Plex Serif',serif;font-weight:700;font-size:1.15rem;letter-spacing:-.01em}
   .marca span{color:var(--guinda)}
   .selector-anio{border:1px solid var(--regla);background:var(--papel);border-radius:4px;padding:.3rem .6rem;font-family:'IBM Plex Mono',monospace;font-size:.85rem}
+
+  /* ---------- Navegación de primer nivel (Resumen / Facturas / Contribuyentes) ---------- */
+  .tabs{display:flex;gap:.3rem}
+  .tab{background:none;border:1px solid transparent;border-radius:4px;
+       padding:.4rem .8rem;font-size:.85rem;font-weight:500;color:var(--tinta-suave)}
+  .tab:hover{color:var(--tinta)}
+  .tab.activo{background:var(--papel);border-color:var(--regla);color:var(--tinta);font-weight:600}
+  /* Solo aplican a Resumen/Facturas -- se ocultan juntos en Contribuyentes
+     (ver mostrarPagina). */
+  .selectores-vista{display:flex;gap:.6rem}
+
   .identidad{margin-left:auto;display:flex;align-items:center;gap:.7rem;font-size:.8rem;color:var(--tinta-suave)}
   .rfc-actual{font-family:'IBM Plex Mono',monospace}
   .btn-plano{background:none;border:1px solid var(--regla);border-radius:4px;padding:.25rem .6rem;font-size:.75rem;color:var(--tinta-suave)}
@@ -39,6 +50,12 @@
 
   /* ---------- Acceso ---------- */
   .acceso{max-width:380px;margin:4rem auto;background:var(--blanco);border:1px solid var(--regla);border-radius:6px;box-shadow:var(--sombra);padding:2rem}
+  /* La tarjeta de Contribuyentes reutiliza el estilo .acceso (mismo look de
+     formulario/tarjeta), pero ya no vive sola en una pantalla en blanco --
+     el margen vertical de 4rem se quita porque el padding de .contenido y
+     el topbar ya la separan de la parte de arriba; se conserva el centrado
+     horizontal. */
+  .pagina-tarjeta{margin:0 auto}
   .acceso h1{font-family:'IBM Plex Serif',serif;font-size:1.4rem;margin-bottom:.4rem}
   .acceso p.sub{font-size:.85rem;color:var(--tinta-suave);margin-bottom:1.4rem}
   .campo{margin-bottom:1rem}
@@ -47,6 +64,12 @@
   .btn-principal{width:100%;background:var(--tinta);color:var(--papel);border:none;border-radius:4px;padding:.65rem 1rem;font-weight:600;font-size:.9rem}
   .btn-principal:disabled{opacity:.6;cursor:not-allowed}
   .error{background:var(--guinda-fondo);color:var(--guinda);border-left:3px solid var(--guinda);border-radius:0 4px 4px 0;padding:.6rem .8rem;font-size:.82rem;margin-bottom:1rem}
+  /* Vive fuera de las tres páginas (para avisar sin importar cuál esté
+     activa), así que necesita su propio margen horizontal en vez de
+     heredarlo de .contenido -- combinar ambas clases en un solo elemento
+     sería fragil, ambas fijan `padding` y una pisaría a la otra según el
+     orden de declaración, no según cuál "tenga más sentido". */
+  #error-datos{margin:1.2rem 2rem 0}
 
   /* ---------- Aviso de RFC pendiente ---------- */
   .aviso-rfc{background:var(--ambar-fondo);border:1px solid #E0CFA6;border-left:4px solid var(--ambar);border-radius:0 6px 6px 0;padding:1rem 1.2rem;margin-bottom:1.5rem}
@@ -248,52 +271,6 @@
   </form>
 </section>
 
-<!-- ---------------- Contribuyentes (RFCs de la cuenta) --------------------- -->
-<section id="pantalla-rfcs" class="acceso acceso-ancho" hidden>
-  <h1>Contribuyentes</h1>
-  <p class="sub">
-    Una persona física tiene un solo RFC, así que varios aquí significan que
-    administras las deducciones de más de un contribuyente.
-  </p>
-  <div id="error-rfcs" class="error" hidden></div>
-
-  <div class="tabla-rfcs-wrap">
-    <table class="tabla-rfcs">
-      <thead>
-        <tr><th>RFC</th><th>Tipo</th><th>Nombre</th><th></th></tr>
-      </thead>
-      <tbody id="tbody-rfcs"></tbody>
-    </table>
-  </div>
-
-  <h2 class="subtitulo">Agregar otro</h2>
-  <form id="form-rfc">
-    <div class="campo">
-      <label for="nuevo-rfc">RFC</label>
-      <input type="text" id="nuevo-rfc" maxlength="13" placeholder="AAAA000000XXX"
-             autocapitalize="characters" spellcheck="false" required>
-    </div>
-    <div class="campo">
-      <label for="nuevo-tipo">Tipo de contribuyente</label>
-      <select id="nuevo-tipo" class="filtro" style="width:100%">
-        <option value="fisica">Persona física</option>
-        <option value="moral">Persona moral (empresa)</option>
-      </select>
-      <!-- El tipo no es un dato descriptivo: decide si a sus facturas se les
-           aplican las reglas de deducción personal. Se explica aquí porque
-           elegir mal produce resultados equivocados, no solo una etiqueta. -->
-      <p class="ayuda" id="ayuda-tipo"></p>
-    </div>
-    <div class="campo">
-      <label for="nuevo-alias">Nombre (opcional)</label>
-      <input type="text" id="nuevo-alias" maxlength="60" placeholder="Mi empresa">
-    </div>
-    <button type="submit" class="btn-principal" id="btn-agregar-rfc">Agregar</button>
-    <button type="button" class="btn-plano" id="btn-cerrar-rfcs"
-            style="width:100%;margin-top:.6rem;padding:.5rem">Volver</button>
-  </form>
-</section>
-
 <!-- ---------------- Cambiar contraseña (ya autenticado) -------------------- -->
 <section id="pantalla-cambio" class="acceso" hidden>
   <h1>Cambiar contraseña</h1>
@@ -315,30 +292,48 @@
   </form>
 </section>
 
-<!-- ---------------- Dashboard ---------------- -->
-<div id="pantalla-datos" hidden>
+<!-- ---------------- Dashboard: shell persistente con 3 páginas -------------
+     Resumen y Facturas responden preguntas distintas ("¿cómo voy este año?"
+     vs. "¿dónde está ese documento?") y se muestran una a la vez, nunca
+     juntas -- mezclarlas hace que la que se usa menos estorbe a la que se
+     usa más. Contribuyentes deja de ser una "puerta trasera" detrás de un
+     botón y pasa a pestaña de primer nivel, al mismo rango que las otras
+     dos: administrar contribuyentes es tan central como ver facturas. -->
+<div id="app-shell" hidden>
   <header class="topbar">
     <div class="marca">Facturas<span>MX</span></div>
-    <select class="selector-anio" id="selector-anio" aria-label="Ejercicio fiscal"></select>
-    <!-- Solo aparece cuando hay más de un contribuyente en la cuenta. Incluye
-         "Todos" como opción por defecto: la tabla SÍ puede mostrar facturas de
-         varios contribuyentes juntas (solo lista, no suma nada), pero cada
-         contribuyente conserva su propia tarjeta de resumen -- nunca se
-         combinan sus deducciones en un solo total, porque cada quien declara
-         por separado y mezclarlos le atribuiría a alguien deducciones ajenas. -->
-    <select class="selector-anio" id="selector-rfc"
-            aria-label="Contribuyente" hidden></select>
+    <nav class="tabs" aria-label="Secciones">
+      <button type="button" class="tab" data-tab="resumen">Resumen</button>
+      <button type="button" class="tab" data-tab="facturas">Facturas</button>
+      <button type="button" class="tab" data-tab="contribuyentes">Contribuyentes</button>
+    </nav>
+    <!-- Solo tienen sentido en Resumen/Facturas -- ninguno de los dos
+         escoge un ejercicio o un contribuyente cuando se administra la
+         lista de contribuyentes. Se ocultan juntos al entrar a esa pestaña
+         (ver mostrarPagina). -->
+    <div class="selectores-vista" id="selectores-vista">
+      <select class="selector-anio" id="selector-anio" aria-label="Ejercicio fiscal"></select>
+      <!-- Solo aparece cuando hay más de un contribuyente en la cuenta.
+           Incluye "Todos" como opción por defecto: la tabla SÍ puede
+           mostrar facturas de varios contribuyentes juntas (solo lista, no
+           suma nada), pero cada contribuyente conserva su propia tarjeta de
+           resumen -- nunca se combinan sus deducciones en un solo total,
+           porque cada quien declara por separado y mezclarlos le
+           atribuiría a alguien deducciones ajenas. -->
+      <select class="selector-anio" id="selector-rfc"
+              aria-label="Contribuyente" hidden></select>
+    </div>
     <div class="identidad">
       <span class="rfc-actual" id="rfc-actual"></span>
-      <button class="btn-plano" id="btn-contribuyentes">Contribuyentes</button>
       <button class="btn-plano" id="btn-cambiar-password">Contraseña</button>
       <button class="btn-plano" id="btn-salir">Salir</button>
     </div>
   </header>
 
-  <main class="contenido">
-    <div id="error-datos" class="error" hidden></div>
+  <div id="error-datos" class="error" hidden></div>
 
+  <!-- ---- Página: Resumen ---- -->
+  <main class="contenido" id="pagina-resumen">
     <section class="aviso-rfc" id="aviso-rfc" hidden>
       <h2>Falta tu RFC</h2>
       <p>
@@ -361,7 +356,10 @@
          Se genera por completo en JS (pintarResumenes) porque el número de
          tarjetas varía según la cuenta. -->
     <div id="contenedor-resumenes"></div>
+  </main>
 
+  <!-- ---- Página: Facturas ---- -->
+  <main class="contenido" id="pagina-facturas" hidden>
     <div class="filtros">
       <select class="filtro" id="filtro-mes" aria-label="Filtrar por mes"></select>
       <select class="filtro" id="filtro-categoria" aria-label="Filtrar por categoría">
@@ -399,6 +397,53 @@
     </section>
 
     <p class="pie" id="pie-conteo"></p>
+  </main>
+
+  <!-- ---- Página: Contribuyentes ---- -->
+  <main class="contenido" id="pagina-contribuyentes" hidden>
+    <section class="acceso acceso-ancho pagina-tarjeta">
+      <h1>Contribuyentes</h1>
+      <p class="sub">
+        Una persona física tiene un solo RFC, así que varios aquí significan que
+        administras las deducciones de más de un contribuyente.
+      </p>
+      <div id="error-rfcs" class="error" hidden></div>
+
+      <div class="tabla-rfcs-wrap">
+        <table class="tabla-rfcs">
+          <thead>
+            <tr><th>RFC</th><th>Tipo</th><th>Nombre</th><th></th></tr>
+          </thead>
+          <tbody id="tbody-rfcs"></tbody>
+        </table>
+      </div>
+
+      <h2 class="subtitulo">Agregar otro</h2>
+      <form id="form-rfc">
+        <div class="campo">
+          <label for="nuevo-rfc">RFC</label>
+          <input type="text" id="nuevo-rfc" maxlength="13" placeholder="AAAA000000XXX"
+                 autocapitalize="characters" spellcheck="false" required>
+        </div>
+        <div class="campo">
+          <label for="nuevo-tipo">Tipo de contribuyente</label>
+          <select id="nuevo-tipo" class="filtro" style="width:100%">
+            <option value="fisica">Persona física</option>
+            <option value="moral">Persona moral (empresa)</option>
+          </select>
+          <!-- El tipo no es un dato descriptivo: decide si a sus facturas se
+               les aplican las reglas de deducción personal. Se explica aquí
+               porque elegir mal produce resultados equivocados, no solo una
+               etiqueta. -->
+          <p class="ayuda" id="ayuda-tipo"></p>
+        </div>
+        <div class="campo">
+          <label for="nuevo-alias">Nombre (opcional)</label>
+          <input type="text" id="nuevo-alias" maxlength="60" placeholder="Mi empresa">
+        </div>
+        <button type="submit" class="btn-principal" id="btn-agregar-rfc">Agregar</button>
+      </form>
+    </section>
   </main>
 </div>
 
@@ -440,8 +485,11 @@
   // contraseña y por tanto no pueden iniciar sesión.
   var webTokenDeLaUrl = new URLSearchParams(location.search).get("token");
 
-  var PANTALLAS = ["pantalla-acceso", "pantalla-alta", "pantalla-cambio",
-                   "pantalla-rfcs", "pantalla-datos"];
+  var PANTALLAS = ["pantalla-acceso", "pantalla-alta", "pantalla-cambio", "app-shell"];
+  // Las tres páginas DENTRO de app-shell (Resumen / Facturas / Contribuyentes)
+  // -- independiente de PANTALLAS: cambiar de página nunca oculta el topbar,
+  // a diferencia de cambiar de pantalla (login, alta de contraseña, etc.).
+  var PAGINAS = ["pagina-resumen", "pagina-facturas", "pagina-contribuyentes"];
 
   // RFCs de la cuenta y cuál se está viendo. `rfcActivo` vacío ("") significa
   // "Todos" -- el default cuando hay más de uno. Con 0 o 1 contribuyentes no
@@ -457,6 +505,25 @@
 
   function mostrarSolo(id) {
     PANTALLAS.forEach(function (p) { $(p).hidden = (p !== id); });
+  }
+
+  /** Cambia de página dentro del shell (Resumen / Facturas / Contribuyentes).
+   * `sufijo` es "resumen", "facturas" o "contribuyentes" -- coincide con el
+   * `data-tab` de cada botón y con el nombre de cada <main id="pagina-...">. */
+  function mostrarPagina(sufijo) {
+    PAGINAS.forEach(function (p) { $(p).hidden = (p !== "pagina-" + sufijo); });
+    document.querySelectorAll(".tab").forEach(function (btn) {
+      btn.classList.toggle("activo", btn.dataset.tab === sufijo);
+    });
+    // El selector de año y el de contribuyente solo aplican a Resumen y
+    // Facturas -- ninguno de los dos filtra nada cuando lo que se está
+    // viendo es la lista de contribuyentes en sí.
+    $("selectores-vista").hidden = (sufijo === "contribuyentes");
+    if (sufijo === "contribuyentes") {
+      mostrarError("error-rfcs", "");
+      pintarTablaRfcs();
+      actualizarAyudaTipo();
+    }
   }
 
   function money(n) {
@@ -568,7 +635,7 @@
   });
 
   $("btn-cancelar-cambio").addEventListener("click", function () {
-    mostrarSolo("pantalla-datos");
+    mostrarSolo("app-shell");
   });
 
   $("form-cambio").addEventListener("submit", async function (ev) {
@@ -593,7 +660,7 @@
         mostrarError("error-cambio", cuerpo.detail || "No se pudo cambiar la contraseña.");
         return;
       }
-      mostrarSolo("pantalla-datos");
+      mostrarSolo("app-shell");
       mostrarError("error-datos", "Contraseña actualizada.");
     } catch (e) {
       mostrarError("error-cambio", "No se pudo conectar con el servidor.");
@@ -621,7 +688,8 @@
   // ---- Carga de datos -----------------------------------------------------
 
   async function entrar() {
-    mostrarSolo("pantalla-datos");
+    mostrarSolo("app-shell");
+    mostrarPagina("resumen");
     prepararSelectorAnio();
     prepararSelectorMes();
     await cargarPerfil();
@@ -739,15 +807,11 @@
     cargarDatos();
   });
 
-  $("btn-contribuyentes").addEventListener("click", function () {
-    mostrarError("error-rfcs", "");
-    pintarTablaRfcs();
-    actualizarAyudaTipo();
-    mostrarSolo("pantalla-rfcs");
-  });
-
-  $("btn-cerrar-rfcs").addEventListener("click", function () {
-    mostrarSolo("pantalla-datos");
+  // Navegación de primer nivel. Los tres botones ya existen en el HTML
+  // (data-tab="resumen"/"facturas"/"contribuyentes"); un solo listener
+  // delegado cubre los tres en vez de uno por botón.
+  document.querySelectorAll(".tab").forEach(function (btn) {
+    btn.addEventListener("click", function () { mostrarPagina(btn.dataset.tab); });
   });
 
   function pintarTablaRfcs() {
