@@ -17,7 +17,7 @@ type Row = Record<string, any>;
 export class FakeSupabaseClient {
   tables: Record<string, Row[]> = {
     users: [], invoices: [], chat_messages: [], debug_logs: [],
-    user_rfcs: [], rate_limit_attempts: [],
+    user_rfcs: [], rate_limit_attempts: [], authorized_senders: [],
   };
   private nextId: Record<string, number> = { users: 1, invoices: 1 };
 

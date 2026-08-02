@@ -457,6 +457,38 @@
         <button type="submit" class="btn-principal" id="btn-agregar-rfc">Agregar</button>
       </form>
     </section>
+
+    <section class="acceso acceso-ancho pagina-tarjeta" style="margin-top:1.5rem">
+      <h1>Correos autorizados</h1>
+      <p class="sub">
+        Las facturas por correo se atribuyen a tu cuenta según quién las manda.
+        Si además reenvías facturas desde otra dirección (tu trabajo, tu
+        contador), autorízala aquí para que también caigan en tu archivo.
+      </p>
+      <div id="error-correos" class="error" hidden></div>
+
+      <div class="tabla-rfcs-wrap">
+        <table class="tabla-rfcs">
+          <thead>
+            <tr><th>Correo</th><th>Nombre</th><th></th></tr>
+          </thead>
+          <tbody id="tbody-correos"></tbody>
+        </table>
+      </div>
+
+      <h2 class="subtitulo">Agregar otro</h2>
+      <form id="form-correo">
+        <div class="campo">
+          <label for="nuevo-correo">Correo</label>
+          <input type="email" id="nuevo-correo" placeholder="trabajo@empresa.com" required>
+        </div>
+        <div class="campo">
+          <label for="nuevo-correo-alias">Nombre (opcional)</label>
+          <input type="text" id="nuevo-correo-alias" maxlength="60" placeholder="Trabajo">
+        </div>
+        <button type="submit" class="btn-principal" id="btn-agregar-correo">Agregar</button>
+      </form>
+    </section>
   </main>
 </div>
 
@@ -514,6 +546,9 @@
   // el comportamiento de siempre.
   var rfcs = [];
   var rfcActivo = null;
+  // Correos autorizados a alimentar la cuenta (Fase M18) -- se cargan solo
+  // al entrar a la pestaña Contribuyentes, no en el arranque general.
+  var correosAutorizados = [];
   // Si la tabla muestra la columna "Contribuyente" -- solo en modo "Todos"
   // con más de un RFC. Ver cargarDatos().
   var mostrarColumnaContribuyente = false;
@@ -538,8 +573,10 @@
     $("selectores-vista").hidden = (sufijo === "contribuyentes");
     if (sufijo === "contribuyentes") {
       mostrarError("error-rfcs", "");
+      mostrarError("error-correos", "");
       pintarTablaRfcs();
       actualizarAyudaTipo();
+      cargarCorreos().then(pintarTablaCorreos);
     }
   }
 
@@ -916,6 +953,77 @@
     }
     await cargarRfcs();
     pintarTablaRfcs();
+  });
+
+  // ---- Correos autorizados (Fase M18) --------------------------------------
+
+  async function cargarCorreos() {
+    var resp = await pedir("/api-user-authorized-senders");
+    if (!resp || !resp.ok) return;
+    correosAutorizados = (await resp.json()).correos || [];
+  }
+
+  function pintarTablaCorreos() {
+    var tb = $("tbody-correos");
+    if (!correosAutorizados.length) {
+      tb.innerHTML = '<tr><td colspan="3">No has autorizado ningún otro correo.</td></tr>';
+      return;
+    }
+    tb.innerHTML = correosAutorizados.map(function (c) {
+      return '<tr>' +
+        '<td>' + escapeHtml(c.email) + '</td>' +
+        '<td>' + escapeHtml(c.alias || "—") + '</td>' +
+        '<td><button class="btn-quitar" data-id="' + c.id + '">Quitar</button></td>' +
+      '</tr>';
+    }).join("");
+  }
+
+  $("form-correo").addEventListener("submit", async function (ev) {
+    ev.preventDefault();
+    mostrarError("error-correos", "");
+    var btn = $("btn-agregar-correo");
+    btn.disabled = true;
+    try {
+      var resp = await pedir("/api-user-authorized-senders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: $("nuevo-correo").value.trim(),
+          alias: $("nuevo-correo-alias").value.trim()
+        })
+      });
+      if (!resp) return;
+      var cuerpo = await resp.json();
+      if (!resp.ok) {
+        mostrarError("error-correos", cuerpo.detail || "No se pudo agregar el correo.");
+        return;
+      }
+      $("form-correo").reset();
+      await cargarCorreos();
+      pintarTablaCorreos();
+    } catch (e) {
+      mostrarError("error-correos", "No se pudo conectar con el servidor.");
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  $("tbody-correos").addEventListener("click", async function (ev) {
+    var btn = ev.target.closest(".btn-quitar");
+    if (!btn) return;
+    if (!confirm("¿Quitar este correo autorizado?\n\nLas facturas ya recibidas de él NO se borran.")) return;
+
+    mostrarError("error-correos", "");
+    var resp = await pedir("/api-user-authorized-senders?id=" + encodeURIComponent(btn.dataset.id),
+                           { method: "DELETE" });
+    if (!resp) return;
+    var cuerpo = await resp.json();
+    if (!resp.ok) {
+      mostrarError("error-correos", cuerpo.detail || "No se pudo quitar el correo.");
+      return;
+    }
+    await cargarCorreos();
+    pintarTablaCorreos();
   });
 
   async function cargarDatos() {

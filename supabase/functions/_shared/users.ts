@@ -73,6 +73,14 @@ export async function getOrCreateUserByPhone(
  * `nombre` — igual que en Python, siempre se deriva de la parte local del
  * email (`email.split("@")[0]`). SendGrid no manda un "profile name" como
  * sí lo hace el payload de contactos de WhatsApp.
+ *
+ * Fase M18: si el remitente NO es el correo propio de ninguna cuenta pero SÍ
+ * está en `authorized_senders` (p. ej. el correo de trabajo o del contador
+ * del usuario), la factura se atribuye a esa cuenta en vez de crear una
+ * nueva. Sin esto, reenviar una factura desde una dirección distinta a la
+ * registrada creaba una cuenta fantasma silenciosa que el dueño real nunca
+ * revisaba -- la factura se procesaba bien, solo que en el archivo
+ * equivocado.
  */
 export async function getOrCreateUserByEmail(
   supabase: SupabaseClient,
@@ -92,6 +100,28 @@ export async function getOrCreateUserByEmail(
   }
   if (existing) {
     return existing as AppUser;
+  }
+
+  const { data: autorizado, error: errorAutorizado } = await supabase
+    .schema("facturapp")
+    .from("authorized_senders")
+    .select("user_id")
+    .eq("email", normalizedEmail)
+    .maybeSingle();
+  if (errorAutorizado) {
+    throw new Error(`Error verificando correo autorizado: ${errorAutorizado.message}`);
+  }
+  if (autorizado) {
+    const { data: cuenta, error: errorCuenta } = await supabase
+      .schema("facturapp")
+      .from("users")
+      .select("id, rfc")
+      .eq("id", autorizado.user_id)
+      .single();
+    if (errorCuenta) {
+      throw new Error(`Error resolviendo cuenta del correo autorizado: ${errorCuenta.message}`);
+    }
+    return cuenta as AppUser;
   }
 
   const { data: created, error: insertError } = await supabase

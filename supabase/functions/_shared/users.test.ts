@@ -77,6 +77,33 @@ Deno.test("getOrCreateUserByEmail: normaliza a minúsculas antes de buscar/crear
   assertEquals(created.id, found.id);
 });
 
+// ---- getOrCreateUserByEmail: correos autorizados (Fase M18) -----------------
+//
+// Sin esto, reenviar una factura desde una dirección distinta a la
+// registrada creaba una cuenta fantasma silenciosa: se procesaba bien, pero
+// en un archivo que el dueño real nunca revisaba.
+
+Deno.test("getOrCreateUserByEmail: un correo autorizado se atribuye a la cuenta dueña, no crea una nueva", async () => {
+  const supabase = client();
+  conUsuario(supabase, 7, "PEND111111111", "dueño@golfdynasty.mx");
+  supabase.tables.authorized_senders.push({
+    id: 1, user_id: 7, email: "trabajo@empresa.com", alias: "Trabajo",
+  });
+
+  const user = await getOrCreateUserByEmail(supabase, "trabajo@empresa.com");
+  assertEquals(user.id, 7);
+  assertEquals(supabase.tables.users.length, 1); // no se creó una cuenta nueva
+});
+
+Deno.test("getOrCreateUserByEmail: un correo NO autorizado sigue creando su propia cuenta", async () => {
+  const supabase = client();
+  conUsuario(supabase, 7, "PEND111111111", "dueño@golfdynasty.mx");
+
+  const user = await getOrCreateUserByEmail(supabase, "desconocido@otraempresa.com");
+  assertEquals(user.id !== 7, true);
+  assertEquals(supabase.tables.users.length, 2);
+});
+
 // ---- getUserProfile / getUserByWebToken (Fase M7) ---------------------------
 
 Deno.test("getUserProfile: devuelve el perfil completo por id", async () => {

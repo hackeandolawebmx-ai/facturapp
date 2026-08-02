@@ -66,6 +66,9 @@ verify_jwt = false
 [functions.api-user-rfcs]
 verify_jwt = false
 
+[functions.api-user-authorized-senders]
+verify_jwt = false
+
 [functions.api-summary]
 verify_jwt = false
 
