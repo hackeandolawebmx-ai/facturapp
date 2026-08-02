@@ -7,8 +7,9 @@
 import { assertEquals } from "jsr:@std/assert@1";
 import { FakeSupabaseClient } from "./fake_supabase_client.ts";
 import {
-  getOrCreateUserByEmail, getOrCreateUserByPhone, getUserAuth, getUserAuthByWebToken,
-  getUserByWebToken, getUserProfile, revalidarFacturasTrasCambioDeRfc,
+  generarResetToken, getOrCreateUserByEmail, getOrCreateUserByPhone, getUserAuth,
+  getUserAuthByResetToken, getUserAuthByWebToken, getUserByWebToken, getUserProfile,
+  limpiarResetToken, revalidarFacturasTrasCambioDeRfc,
   rfcTomadoPorOtro, setUserPassword, updateUserRfc,
 } from "./users.ts";
 
@@ -310,4 +311,51 @@ Deno.test("setUserPassword: guarda el hash y deja de ser nula", async () => {
 Deno.test("setUserPassword: usuario inexistente devuelve false", async () => {
   const supabase = client();
   assertEquals(await setUserPassword(supabase, 999, "$2b$10$x"), false);
+});
+
+// ---- Recuperar contraseña (Fase M17) ----------------------------------------
+
+Deno.test("generarResetToken: genera un token y lo deja recuperable", async () => {
+  const supabase = client();
+  conUsuario(supabase, 1, "PEND111111111");
+
+  const token = await generarResetToken(supabase, 1);
+  const auth = await getUserAuthByResetToken(supabase, token);
+  assertEquals(auth?.id, 1);
+});
+
+Deno.test("generarResetToken: reemplaza cualquier token anterior de la misma cuenta", async () => {
+  const supabase = client();
+  conUsuario(supabase, 1, "PEND111111111");
+
+  const primero = await generarResetToken(supabase, 1);
+  const segundo = await generarResetToken(supabase, 1);
+
+  assertEquals(await getUserAuthByResetToken(supabase, primero), null);
+  assertEquals((await getUserAuthByResetToken(supabase, segundo))?.id, 1);
+});
+
+Deno.test("getUserAuthByResetToken: token vencido devuelve null", async () => {
+  const supabase = client();
+  conUsuario(supabase, 1, "PEND111111111");
+  await generarResetToken(supabase, 1);
+  // Simula que el token se generó hace más de 30 minutos.
+  supabase.tables.users[0].reset_token_expira = new Date(Date.now() - 1000).toISOString();
+
+  assertEquals(await getUserAuthByResetToken(supabase, supabase.tables.users[0].reset_token), null);
+});
+
+Deno.test("getUserAuthByResetToken: token inexistente devuelve null", async () => {
+  const supabase = client();
+  assertEquals(await getUserAuthByResetToken(supabase, "no-existe"), null);
+});
+
+Deno.test("limpiarResetToken: invalida el token de un solo uso", async () => {
+  const supabase = client();
+  conUsuario(supabase, 1, "PEND111111111");
+  const token = await generarResetToken(supabase, 1);
+
+  await limpiarResetToken(supabase, 1);
+
+  assertEquals(await getUserAuthByResetToken(supabase, token), null);
 });

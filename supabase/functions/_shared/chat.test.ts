@@ -117,18 +117,6 @@ Deno.test("chat(): reclassify_invoice actualiza la factura correcta", async () =
   assertEquals(supabase.tables.invoices[0].confianza, 1.0);
 });
 
-Deno.test("chat(): export_package es el mock (status mock_fase4)", async () => {
-  const supabase = client();
-  supabase.tables.users.push({ id: 1, rfc: "DAXX860715XX0" });
-  seedInvoice(supabase, 1, "UUID-X");
-
-  const result = await chat(
-    supabase, { id: 1, rfc: "DAXX860715XX0" }, "exporta",
-    fakeCompletionFor("export_package"),
-  );
-  assert(result.response.includes("mock_fase4"));
-});
-
 Deno.test("chat(): sin tool_calls devuelve la respuesta directa", async () => {
   const supabase = client();
   supabase.tables.users.push({ id: 1, rfc: "DAXX860715XX0" });

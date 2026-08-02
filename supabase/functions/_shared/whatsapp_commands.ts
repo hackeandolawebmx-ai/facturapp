@@ -29,7 +29,9 @@ const HELP_REPLY =
   "• Listar tus facturas (\"mis facturas de julio\")\n" +
   "• Reclasificar una factura (\"cambia esa factura a médicos\")\n" +
   "• Explicarte qué es deducible (\"¿qué puedo deducir?\")\n" +
-  "• Darte el acceso a la plataforma web (\"quiero entrar a la web\")";
+  "• Darte el acceso a la plataforma web (\"quiero entrar a la web\")\n" +
+  "• Ayudarte a recuperar tu contraseña (\"olvidé mi contraseña\")\n" +
+  "• Decirte dónde enviar facturas (\"¿dónde envío mis facturas?\")";
 
 /** Devuelve la respuesta del comando rápido, o `null` si el mensaje debe
  * pasar a chat() con OpenAI. */
@@ -97,3 +99,73 @@ export function mensajeEnlaceLogin(urlDashboard: string): string {
 export const MENSAJE_WEB_NO_DISPONIBLE =
   "Todavía no tengo lista la dirección de la plataforma web. Por ahora puedes " +
   "consultarme por aquí: pregúntame \"¿cuánto llevo?\" o mándame el XML de una factura.";
+
+// ---------------------------------------------------------------------------
+// Recuperar contraseña (Fase M17)
+// ---------------------------------------------------------------------------
+
+/**
+ * ¿El usuario está pidiendo recuperar/restablecer su contraseña?
+ *
+ * Mismo patrón que `esPeticionDeEnlaceWeb`: se decide aquí SI aplica, el
+ * webhook arma la respuesta porque necesita generar el token del usuario.
+ *
+ * Exige mencionar la contraseña Y una palabra de "olvido/recuperación" — solo
+ * "contraseña" sería demasiado amplio (interceptaría preguntas legítimas
+ * sobre cómo cambiarla), y solo "olvidé" sin contexto podría ser sobre
+ * cualquier otra cosa.
+ */
+const PALABRA_CONTRASENA = /contrase[ñn]a|password/i;
+const PALABRA_OLVIDO = /olvid|recuper|restable|resete|perd[ií]|no\s*(me\s*)?acuerdo|no\s*recuerdo/i;
+
+export function esPeticionDeRecuperarPassword(text: string): boolean {
+  const trimmed = text.trim();
+  return PALABRA_CONTRASENA.test(trimmed) && PALABRA_OLVIDO.test(trimmed);
+}
+
+/** Mensaje con el enlace para poner una contraseña nueva, para cuentas que YA
+ * tienen una pero la olvidaron. El token es de un solo uso y vence en 30
+ * minutos (ver `generarResetToken` en users.ts) — a diferencia del enlace de
+ * alta, que no vence hasta usarse. */
+export function mensajeEnlaceReset(urlDashboard: string, resetToken: string): string {
+  const url = `${urlDashboard}?reset_token=${encodeURIComponent(resetToken)}`;
+  return (
+    "Para poner una contraseña nueva, entra aquí:\n\n" +
+    `${url}\n\n` +
+    "El enlace es personal y solo funciona por 30 minutos: cualquiera que lo " +
+    "tenga podría cambiar la contraseña de tu cuenta, así que no lo compartas."
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Dónde enviar facturas (Fase M17)
+// ---------------------------------------------------------------------------
+
+/**
+ * ¿El usuario está preguntando dónde enviar/registrar sus facturas?
+ *
+ * Requiere explícitamente verbos de envío: "envío", "mando", "registro", "subo".
+ * No intercepta "dónde está mi factura" ni "dónde puedo ver", porque esas son
+ * consultas sobre facturas ya existentes, no sobre cómo registrar nuevas.
+ */
+const PALABRA_ENVIO = /envío|env[íi]o|mando|registro|subo|upload|c[óo]mo\s+(envío|mando|registro|subo)/i;
+const PALABRA_FACTURAS = /factura|documento|xml|cfdi|invoice/i;
+
+export function esPeticionDeEnvioFacturas(text: string): boolean {
+  const trimmed = text.trim();
+  return PALABRA_ENVIO.test(trimmed) && PALABRA_FACTURAS.test(trimmed);
+}
+
+/** Mensaje con las tres formas de enviar facturas (email, WhatsApp, web). */
+export function mensajeFormasEnvio(emailDomain: string, urlDashboard: string): string {
+  return (
+    "Puedes enviar tus facturas de 3 formas:\n\n" +
+    `📧 *Por correo:* ${emailDomain}\n` +
+    "Adjunta el XML (y el PDF si tienes) — se procesa automático.\n\n" +
+    "💬 *Por WhatsApp:* Mándame el XML como documento\n" +
+    "Lo recibo, lo parseo y lo clasifico de inmediato.\n\n" +
+    `🌐 *Por la plataforma web:* ${urlDashboard}\n` +
+    "Entra, ve a Facturas, y sube tus documentos.\n\n" +
+    "En cualquier caso, primero debe existir tu cuenta (registrada aquí o por email/WhatsApp)."
+  );
+}

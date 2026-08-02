@@ -26,7 +26,8 @@ import { corsHeaders, jsonHeaders } from "../_shared/cors.ts";
 import { getCurrentUser } from "../_shared/auth.ts";
 import { hashPassword, verifyPassword } from "../_shared/passwords.ts";
 import {
-  getUserAuth, getUserAuthByWebToken, setUserPassword, type UserAuthRow,
+  getUserAuth, getUserAuthByResetToken, getUserAuthByWebToken, limpiarResetToken,
+  setUserPassword, type UserAuthRow,
 } from "../_shared/users.ts";
 import { ipDelCliente, registrarIntento } from "../_shared/rate_limit.ts";
 
@@ -48,6 +49,7 @@ interface Payload {
   password_nuevo?: string;
   password_actual?: string;
   web_token?: string;
+  reset_token?: string;
 }
 
 async function handlePost(req: Request): Promise<Response> {
@@ -79,12 +81,20 @@ async function handlePost(req: Request): Promise<Response> {
   // ---- Resolver de quién es la cuenta -------------------------------------
   let usuario: UserAuthRow | null = null;
   let viaWebToken = false;
+  let viaResetToken = false;
 
   const authHeader = req.headers.get("authorization");
   if (authHeader) {
     const secretKey = Deno.env.get("SECRET_KEY") ?? "";
     const autenticado = await getCurrentUser(authHeader, supabase, secretKey);
     if (autenticado) usuario = await getUserAuth(supabase, autenticado.id);
+  } else if (payload.reset_token) {
+    // Recuperar contraseña (M17): token aparte del web_token, de un solo uso
+    // y vigente 30 minutos -- ver 0009_password_reset.sql. A diferencia del
+    // web_token, SÍ debe poder saltarse el requisito de contraseña actual:
+    // ese es justo el caso que resuelve ("olvidé mi contraseña").
+    usuario = await getUserAuthByResetToken(supabase, payload.reset_token);
+    viaResetToken = true;
   } else if (payload.web_token) {
     usuario = await getUserAuthByWebToken(supabase, payload.web_token);
     viaWebToken = true;
@@ -95,7 +105,7 @@ async function handlePost(req: Request): Promise<Response> {
   }
 
   // ---- Autorizar el cambio -------------------------------------------------
-  if (usuario.hashed_password) {
+  if (usuario.hashed_password && !viaResetToken) {
     // La cuenta ya tiene contraseña: el web_token deja de ser suficiente.
     if (viaWebToken) {
       return jsonResponse(
@@ -113,6 +123,9 @@ async function handlePost(req: Request): Promise<Response> {
   const guardada = await setUserPassword(supabase, usuario.id, hashPassword(nueva));
   if (!guardada) {
     return jsonResponse({ detail: "No se pudo guardar la contraseña" }, 500);
+  }
+  if (viaResetToken) {
+    await limpiarResetToken(supabase, usuario.id);
   }
 
   return jsonResponse({

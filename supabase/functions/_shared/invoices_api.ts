@@ -16,8 +16,7 @@
  */
 import type { SupabaseClient } from "jsr:@supabase/supabase-js@2";
 import { eliminarPdf } from "./pdf_storage.ts";
-
-const YEAR_DEFAULT = 2026;
+import { anioFiscalActual } from "./fecha_mexico.ts";
 
 export interface SummaryResult {
   year: number;
@@ -36,7 +35,7 @@ export interface SummaryResult {
  * anterior, correcto mientras haya un solo RFC.
  */
 export async function summaryForUser(
-  supabase: SupabaseClient, userId: number, year: number = YEAR_DEFAULT,
+  supabase: SupabaseClient, userId: number, year: number = anioFiscalActual(),
   rfc?: string,
 ): Promise<SummaryResult> {
   let query = supabase
@@ -100,7 +99,7 @@ export interface InvoiceDict {
 
 /** Port 1:1 de `list_invoices()` (endpoint REST) + `Invoice.to_dict()`. */
 export async function listInvoicesForUser(
-  supabase: SupabaseClient, userId: number, year: number = YEAR_DEFAULT,
+  supabase: SupabaseClient, userId: number, year: number = anioFiscalActual(),
   rfc?: string,
 ): Promise<{ year: number; invoices: InvoiceDict[] }> {
   let query = supabase

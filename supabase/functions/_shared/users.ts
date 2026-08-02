@@ -325,3 +325,54 @@ export async function getUserByWebToken(
   if (error) throw new Error(`Error consultando usuario por token: ${error.message}`);
   return (data as UserProfile) ?? null;
 }
+
+// --------------------------------------------------------------------------
+// Recuperar contraseña (Fase M17)
+// --------------------------------------------------------------------------
+
+const RESET_TOKEN_MINUTOS = 30;
+
+/** Genera un token de recuperación de un solo uso, vigente 30 minutos, y lo
+ * guarda reemplazando cualquier token anterior de la cuenta (pedir uno nuevo
+ * invalida el previo). Separado de `web_token` a propósito — ver
+ * 0009_password_reset.sql para el porqué. */
+export async function generarResetToken(
+  supabase: SupabaseClient, userId: number,
+): Promise<string> {
+  const token = crypto.randomUUID();
+  const expira = new Date(Date.now() + RESET_TOKEN_MINUTOS * 60_000).toISOString();
+  const { error } = await supabase
+    .schema("facturapp").from("users")
+    .update({ reset_token: token, reset_token_expira: expira })
+    .eq("id", userId);
+  if (error) throw new Error(`Error generando token de recuperación: ${error.message}`);
+  return token;
+}
+
+/** Busca al usuario por token de recuperación vigente (no vencido). Un token
+ * vencido o inexistente devuelve `null` igual que uno inválido -- no hay
+ * necesidad de distinguirlos para quien llama. */
+export async function getUserAuthByResetToken(
+  supabase: SupabaseClient, token: string,
+): Promise<UserAuthRow | null> {
+  const { data, error } = await supabase
+    .schema("facturapp").from("users")
+    .select(`${AUTH_COLS}, reset_token_expira`)
+    .eq("reset_token", token)
+    .maybeSingle();
+  if (error) throw new Error(`Error consultando token de recuperación: ${error.message}`);
+  if (!data) return null;
+  if (!data.reset_token_expira || new Date(data.reset_token_expira) < new Date()) return null;
+  return data as UserAuthRow;
+}
+
+/** Invalida el token de recuperación tras usarlo -- de un solo uso. */
+export async function limpiarResetToken(
+  supabase: SupabaseClient, userId: number,
+): Promise<void> {
+  const { error } = await supabase
+    .schema("facturapp").from("users")
+    .update({ reset_token: null, reset_token_expira: null })
+    .eq("id", userId);
+  if (error) throw new Error(`Error limpiando token de recuperación: ${error.message}`);
+}

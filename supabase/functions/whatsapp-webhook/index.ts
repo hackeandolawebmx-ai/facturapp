@@ -29,10 +29,11 @@ import {
   sendWhatsappMessage, verifyWhatsappSignature, whatsappReplyText,
 } from "../_shared/whatsapp.ts";
 import {
-  esPeticionDeEnlaceWeb, interceptQuickCommand, mensajeEnlaceAlta,
-  mensajeEnlaceLogin, MENSAJE_WEB_NO_DISPONIBLE,
+  esPeticionDeEnlaceWeb, esPeticionDeRecuperarPassword, esPeticionDeEnvioFacturas,
+  interceptQuickCommand, mensajeEnlaceAlta, mensajeEnlaceLogin, mensajeEnlaceReset,
+  mensajeFormasEnvio, MENSAJE_WEB_NO_DISPONIBLE,
 } from "../_shared/whatsapp_commands.ts";
-import { getOrCreateUserByPhone, getUserAuth } from "../_shared/users.ts";
+import { generarResetToken, getOrCreateUserByPhone, getUserAuth } from "../_shared/users.ts";
 import { ingestInvoice } from "../_shared/invoices.ts";
 import { chat, getRecentChatHistory, realChatCompletion } from "../_shared/chat.ts";
 import { logDebug } from "../_shared/debug_log.ts";
@@ -93,6 +94,41 @@ async function handleTextMessage(
     await logDebug(supabase, "whatsapp: enlace web", { from: msg.from });
     await sendWhatsappMessage(msg.from, respuesta, whatsappToken, phoneNumberId);
     return { from: msg.from, tipo: "enlace_web" };
+  }
+
+  // Recuperar contraseña (M17). Va aparte de "enlace web" porque una cuenta
+  // SIN contraseña todavía no tiene nada que "recuperar" -- se le manda el
+  // mismo enlace de alta de siempre, no uno de reset.
+  if (esPeticionDeRecuperarPassword(msg.text)) {
+    const urlDashboard = Deno.env.get("DASHBOARD_URL");
+    let respuesta: string;
+    if (!urlDashboard) {
+      respuesta = MENSAJE_WEB_NO_DISPONIBLE;
+    } else {
+      const credenciales = await getUserAuth(supabase, user.id);
+      if (credenciales?.hashed_password) {
+        const token = await generarResetToken(supabase, user.id);
+        respuesta = mensajeEnlaceReset(urlDashboard, token);
+      } else {
+        respuesta = credenciales?.web_token
+          ? mensajeEnlaceAlta(urlDashboard, credenciales.web_token)
+          : MENSAJE_WEB_NO_DISPONIBLE;
+      }
+    }
+    await logDebug(supabase, "whatsapp: recuperar contraseña", { from: msg.from });
+    await sendWhatsappMessage(msg.from, respuesta, whatsappToken, phoneNumberId);
+    return { from: msg.from, tipo: "recuperar_password" };
+  }
+
+  // Dónde enviar facturas (M17). Similar a los anteriores: info estática que
+  // no requiere datos del usuario, aunque el mensaje sea personalizado.
+  if (esPeticionDeEnvioFacturas(msg.text)) {
+    const urlDashboard = Deno.env.get("DASHBOARD_URL") ?? "";
+    const emailDomain = Deno.env.get("SENDGRID_INBOUND_EMAIL") ?? "facturas@facturas.golfdynasty.mx";
+    const respuesta = mensajeFormasEnvio(emailDomain, urlDashboard);
+    await logDebug(supabase, "whatsapp: dónde enviar facturas", { from: msg.from });
+    await sendWhatsappMessage(msg.from, respuesta, whatsappToken, phoneNumberId);
+    return { from: msg.from, tipo: "donde_enviar_facturas" };
   }
 
   await supabase.schema("facturapp").from("chat_messages")

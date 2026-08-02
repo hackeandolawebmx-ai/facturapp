@@ -4,6 +4,7 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 import { corsHeaders, jsonHeaders } from "../_shared/cors.ts";
 import { getCurrentUser } from "../_shared/auth.ts";
 import { summaryForUser } from "../_shared/invoices_api.ts";
+import { anioFiscalActual } from "../_shared/fecha_mexico.ts";
 
 function getSupabaseClient() {
   return createClient(
@@ -30,7 +31,7 @@ async function handleGet(req: Request): Promise<Response> {
 
   const url = new URL(req.url);
   const yearParam = url.searchParams.get("year");
-  const year = yearParam ? parseInt(yearParam, 10) : 2026;
+  const year = yearParam ? parseInt(yearParam, 10) : anioFiscalActual();
 
   // Con varios RFCs en la cuenta, sin este filtro el total sumaría las
   // deducciones de contribuyentes distintos (Fase M14).

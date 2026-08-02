@@ -20,10 +20,9 @@
  * 3. `reclassify_invoice` recibe `uuid` (string, `uuid_fiscal`), no un
  *    `invoice_id` numérico como proponía el spec — así es como Python
  *    identifica la factura.
- * 4. `export_package` es un MOCK real en Python (`export.py` devuelve
- *    `{formato, archivos, status: "mock_fase4"}`, sin generar ningún ZIP).
- *    Se porta el mock tal cual — construir un ZIP real ahora sería
- *    adelantar la Fase 4, no portar el sistema actual.
+ * 4. `export_package` (el mock de Python, `{formato, archivos, status:
+ *    "mock_fase4"}` sin generar ningún ZIP) se retiró de `TOOLS`: no aporta
+ *    valor como mock permanente y no se va a completar en el corto plazo.
  * 5. La forma de la respuesta es `{response: string, tools_used: string[]}`
  *    — no `{response, metadata: {intent, function_called}}` como sugería
  *    el spec; ese campo `metadata` no existe en `ChatResponse` de Python.
@@ -39,6 +38,7 @@ import OpenAI, { APIError, OpenAIError, RateLimitError } from "npm:openai@4";
 import type { SupabaseClient } from "jsr:@supabase/supabase-js@2";
 import type { AuthenticatedUser } from "./auth.ts";
 import { listarRfcs, type RfcDeCuenta } from "./rfcs.ts";
+import { anioFiscalActual } from "./fecha_mexico.ts";
 
 // --------------------------------------------------------------------------
 // Clasificación de intención (huérfana en Python — se porta igual, sin uso)
@@ -126,20 +126,6 @@ export const TOOLS = [
   {
     type: "function",
     function: {
-      name: "export_package",
-      description: "Genera un paquete ZIP de exportación del año.",
-      parameters: {
-        type: "object",
-        properties: {
-          year: { type: "integer" },
-          rfc: { type: "string", description: "RFC exacto del contribuyente." },
-        },
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
       name: "explain_deductions",
       description: "Explica las categorías de deducción disponibles.",
       parameters: { type: "object", properties: {} },
@@ -153,8 +139,6 @@ const CATEGORIAS_INFO: Record<string, string> = {
   "Seguros GMM": "Primas de seguros de gastos médicos mayores.",
   "Hipoteca": "Intereses reales de créditos hipotecarios (constancia anual del banco).",
 };
-
-const YEAR_DEFAULT = 2026;
 
 // --------------------------------------------------------------------------
 // Ejecución de herramientas (SIEMPRE filtra por user.id)
@@ -183,7 +167,7 @@ async function toolGetSummary(
     return { error: `No encontré el RFC ${rfc} en esta cuenta.` };
   }
 
-  const y = year ?? YEAR_DEFAULT;
+  const y = year ?? anioFiscalActual();
   let query = supabase.schema("facturapp").from("invoices")
     .select("categoria, total").eq("user_id", user.id).eq("anio", y);
   if (categoria) query = query.eq("categoria", categoria);
@@ -231,7 +215,7 @@ async function toolListInvoices(
     return { error: `No encontré el RFC ${rfc} en esta cuenta.` };
   }
 
-  const y = year ?? YEAR_DEFAULT;
+  const y = year ?? anioFiscalActual();
   let query = supabase.schema("facturapp").from("invoices")
     .select("uuid_fiscal, emisor_nombre, fecha_emision, categoria, total, estatus")
     .eq("user_id", user.id).eq("anio", y);
@@ -291,27 +275,6 @@ async function toolReclassifyInvoice(
   return { ok: true, uuid, de: anterior, a: nuevaCategoria };
 }
 
-/** MOCK — igual que export_zip() en export.py. No genera ningún ZIP real
- * (eso es Fase 4 del sistema original; no adelantarlo aquí). */
-async function toolExportPackage(
-  supabase: SupabaseClient, user: AuthenticatedUser, rfcs: RfcDeCuenta[],
-  year?: number, rfc?: string,
-): Promise<unknown> {
-  const contribuyente = resolverContribuyente(rfcs, rfc);
-  if (contribuyente === null) {
-    return { error: `No encontré el RFC ${rfc} en esta cuenta.` };
-  }
-
-  const y = year ?? YEAR_DEFAULT;
-  let query = supabase.schema("facturapp").from("invoices")
-    .select("id").eq("user_id", user.id).eq("anio", y);
-  if (contribuyente) query = query.eq("usuario_rfc", contribuyente.rfc);
-
-  const { data, error } = await query;
-  if (error) throw new Error(`Error consultando facturas para exportar: ${error.message}`);
-  return { formato: "zip", archivos: (data ?? []).length, status: "mock_fase4" };
-}
-
 function toolExplainDeductions(): unknown {
   return { categorias: CATEGORIAS_INFO };
 }
@@ -334,8 +297,6 @@ async function executeTool(
       );
     case "reclassify_invoice":
       return toolReclassifyInvoice(supabase, user, (args.uuid as string) ?? "", (args.nueva_categoria as string) ?? "");
-    case "export_package":
-      return toolExportPackage(supabase, user, rfcs, args.year as number | undefined, args.rfc as string | undefined);
     case "explain_deductions":
       return toolExplainDeductions();
     default:
@@ -366,11 +327,7 @@ function fechaEnMexico(hoy: Date): { texto: string; anio: number } {
     month: "long",
     day: "numeric",
   });
-  const partes = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "America/Mexico_City",
-    year: "numeric",
-  }).format(hoy);
-  return { texto: formato.format(hoy), anio: Number.parseInt(partes, 10) };
+  return { texto: formato.format(hoy), anio: anioFiscalActual(hoy) };
 }
 
 /** Describe los contribuyentes de la cuenta al modelo (Fase M14).

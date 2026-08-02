@@ -1,6 +1,8 @@
 import { assert, assertEquals } from "jsr:@std/assert@1";
 import {
-  esPeticionDeEnlaceWeb, interceptQuickCommand, mensajeEnlaceAlta, mensajeEnlaceLogin,
+  esPeticionDeEnlaceWeb, esPeticionDeRecuperarPassword, esPeticionDeEnvioFacturas,
+  interceptQuickCommand, mensajeEnlaceAlta, mensajeEnlaceLogin, mensajeEnlaceReset,
+  mensajeFormasEnvio,
 } from "./whatsapp_commands.ts";
 
 Deno.test("interceptQuickCommand: saludo simple devuelve respuesta fija", () => {
@@ -85,3 +87,77 @@ Deno.test("mensajeEnlaceLogin: NO incluye ningún token", () => {
   assertEquals(m.includes("token="), false);
   assert(m.includes("https://facturapp.mx/dashboard.html"));
 });
+
+// ---- Recuperar contraseña (Fase M17) ---------------------------------------
+
+Deno.test("esPeticionDeRecuperarPassword: reconoce las formas naturales de pedirlo", () => {
+  const frases = [
+    "olvidé mi contraseña",
+    "olvide mi password",
+    "quiero recuperar mi contraseña",
+    "no recuerdo mi contraseña",
+    "no me acuerdo de mi password",
+    "cómo restablezco mi contraseña",
+    "resetear contraseña",
+    "perdí mi contraseña",
+  ];
+  for (const frase of frases) {
+    assert(esPeticionDeRecuperarPassword(frase), `no reconoció: ${frase}`);
+  }
+});
+
+Deno.test("esPeticionDeRecuperarPassword: NO intercepta consultas fiscales ni el pedido de entrar a la web", () => {
+  const frases = [
+    "cuánto llevo en médicos",
+    "mis facturas de julio",
+    "quiero entrar a la web",
+    "cómo accedo a la plataforma",
+  ];
+  for (const frase of frases) {
+    assertEquals(esPeticionDeRecuperarPassword(frase), false, `interceptó de más: ${frase}`);
+  }
+});
+
+Deno.test("mensajeEnlaceReset: incluye el reset_token y advierte vigencia/no compartir", () => {
+  const m = mensajeEnlaceReset("https://facturapp.mx/dashboard.html", "RESET123");
+  assert(m.includes("https://facturapp.mx/dashboard.html?reset_token=RESET123"));
+  assert(m.includes("30 minutos"));
+  assert(m.toLowerCase().includes("no lo compartas"));
+});
+
+// ---- Dónde enviar facturas ---------------------------------------------------
+
+Deno.test("esPeticionDeEnvioFacturas: reconoce preguntas sobre cómo enviar", () => {
+  const frases = [
+    "dónde envío mis facturas",
+    "donde envio las facturas",
+    "cómo registro una factura",
+    "como mando un xml",
+    "subo una factura",
+    "mando un documento",
+    "dónde mando mis facturas",
+  ];
+  for (const frase of frases) {
+    assert(esPeticionDeEnvioFacturas(frase), `no reconoció: ${frase}`);
+  }
+});
+
+Deno.test("esPeticionDeEnvioFacturas: NO intercepta consultas fiscales", () => {
+  const frases = [
+    "cuánto llevo en médicos",
+    "mis facturas de julio",
+    "dónde está mi factura del mes pasado",
+    "dónde puedo ver mis deducciones",
+  ];
+  for (const frase of frases) {
+    assertEquals(esPeticionDeEnvioFacturas(frase), false, `interceptó de más: ${frase}`);
+  }
+});
+
+Deno.test("mensajeFormasEnvio: incluye email, WhatsApp y web como formas", () => {
+  const m = mensajeFormasEnvio("facturas@x.com", "https://x.com");
+  assert(m.includes("facturas@x.com"));
+  assert(m.includes("WhatsApp"));
+  assert(m.includes("https://x.com"));
+});
+

@@ -10,6 +10,7 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 import { corsHeaders, jsonHeaders } from "../_shared/cors.ts";
 import { getCurrentUser } from "../_shared/auth.ts";
 import { deleteInvoiceById, listInvoicesForUser, reclassifyInvoiceById } from "../_shared/invoices_api.ts";
+import { anioFiscalActual } from "../_shared/fecha_mexico.ts";
 
 function getSupabaseClient() {
   return createClient(
@@ -28,7 +29,7 @@ function jsonResponse(body: unknown, status: number): Response {
 async function handleGet(req: Request, userId: number, supabase: unknown): Promise<Response> {
   const url = new URL(req.url);
   const yearParam = url.searchParams.get("year");
-  const year = yearParam ? parseInt(yearParam, 10) : 2026;
+  const year = yearParam ? parseInt(yearParam, 10) : anioFiscalActual();
   const rfc = url.searchParams.get("rfc") ?? undefined;
   // deno-lint-ignore no-explicit-any
   const result = await listInvoicesForUser(supabase as any, userId, year, rfc);

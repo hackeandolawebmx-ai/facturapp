@@ -8,6 +8,7 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 import { corsHeaders, jsonHeaders } from "../_shared/cors.ts";
 import { getUserByWebToken } from "../_shared/users.ts";
 import { summaryForUser } from "../_shared/invoices_api.ts";
+import { anioFiscalActual } from "../_shared/fecha_mexico.ts";
 
 function getSupabaseClient() {
   return createClient(
@@ -33,7 +34,7 @@ async function handleGet(req: Request): Promise<Response> {
   if (!user) return jsonResponse({ detail: "Token inválido" }, 404);
 
   const yearParam = url.searchParams.get("year");
-  const year = yearParam ? parseInt(yearParam, 10) : 2026;
+  const year = yearParam ? parseInt(yearParam, 10) : anioFiscalActual();
 
   const result = await summaryForUser(supabase, user.id, year);
   return jsonResponse(result, 200);
