@@ -31,7 +31,11 @@
   .btn-plano{background:none;border:1px solid var(--regla);border-radius:4px;padding:.25rem .6rem;font-size:.75rem;color:var(--tinta-suave)}
   .btn-plano:hover{border-color:var(--tinta);color:var(--tinta)}
 
-  .contenido{max-width:1080px;margin:0 auto;padding:2rem 1.5rem 4rem}
+  /* Sin tope de ancho a propósito: la tabla de facturas es lo que más se
+     beneficia del espacio en pantallas grandes. Las pantallas de acceso
+     (.acceso/.acceso-ancho) siguen angostas -- un formulario no necesita
+     estirarse, solo la vista principal del archivo. */
+  .contenido{margin:0;padding:2rem 2rem 4rem}
 
   /* ---------- Acceso ---------- */
   .acceso{max-width:380px;margin:4rem auto;background:var(--blanco);border:1px solid var(--regla);border-radius:6px;box-shadow:var(--sombra);padding:2rem}
@@ -381,7 +385,7 @@
         <thead>
           <tr>
             <th>Fecha</th><th>Emisor</th>
-            <th>RFC emisor</th><th>RFC receptor</th>
+            <th>RFC receptor</th>
             <th>Folio fiscal</th>
             <th>Categoría</th><th>Estatus</th><th style="text-align:right">Monto</th>
             <!-- Oculta salvo en modo "Todos" con más de un contribuyente: ver
@@ -1037,9 +1041,8 @@
 
   function pintarTabla(lista) {
     var tb = $("tbody-facturas");
-    // Base 9 desde que RFC emisor y RFC receptor tienen columna propia
-    // (antes el RFC del emisor iba como texto pequeño bajo su nombre).
-    var numColumnas = mostrarColumnaContribuyente ? 10 : 9;
+    // Base 8 desde que RFC receptor tiene columna propia.
+    var numColumnas = mostrarColumnaContribuyente ? 9 : 8;
     if (!lista.length) {
       tb.innerHTML = '<tr><td colspan="' + numColumnas +
         '">Ninguna factura coincide con los filtros.</td></tr>';
@@ -1053,7 +1056,6 @@
       var fila = '<tr' + marca + '>' +
         '<td class="fecha">' + fechaCorta(inv.fecha_emision) + '</td>' +
         '<td class="emisor">' + escapeHtml(inv.emisor_nombre) + '</td>' +
-        '<td class="rfc-col">' + escapeHtml(inv.emisor_rfc || "—") + '</td>' +
         '<td class="rfc-col">' + escapeHtml(inv.receptor_rfc || "—") + '</td>' +
         '<td class="folio">' + escapeHtml(folioCorto(inv.uuid)) + '</td>' +
         '<td>' + celdaCategoria(inv, chip) + '</td>' +
