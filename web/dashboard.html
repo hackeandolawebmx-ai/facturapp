@@ -3,33 +3,49 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>FacturasMX — Archivo fiscal</title>
+<title>Facturino — Archivo fiscal</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Serif:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700;800&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
   :root{
-    --papel:#F7F5F0; --tinta:#141E2C; --tinta-suave:#4A5568; --regla:#D9D4C8;
-    --guinda:#7C2140; --guinda-fondo:#F6E9ED; --sello:#1E6B45; --sello-fondo:#E7F1EB;
-    --ambar:#8A5A00; --ambar-fondo:#F5EDDB; --blanco:#FFFFFF;
-    --sombra:0 1px 3px rgba(20,30,44,.08);
+    /* Tokens de marca (Facturino Brand Book v1.0) */
+    --papel:#F7F8FA; --tinta:#172238; --tinta-suave:#5B6675; --regla:#E3E7EC;
+    --verde:#2AB176; --verde-osc:#1E8A5B; --verde-fondo:#E8F7F0;
+    --ambar:#F8A312; --ambar-fondo:#FCEEDA; --ambar-texto:#8A5A0F;
+    --error:#C0392B; --error-fondo:#FBEAEA;
+    --morado:#4C3570; --morado-fondo:#F3F0F7; --morado-borde:#DCD3E8;
+    /* Paleta categórica (chips de tipo de deducción) -- coloración
+       decorativa para distinguir 4 categorías a simple vista, sin relación
+       semántica con el resto de los tokens (verde/ámbar/error). */
+    --chip-fondo:#EDEAE3;
+    --chip-medicos-fondo:#E8EDF5; --chip-medicos-texto:#28406B;
+    --chip-colegiaturas-fondo:#EFE9F5; --chip-colegiaturas-texto:#4C3570;
+    --chip-seguros-fondo:#E9F2F2; --chip-seguros-texto:#20565A;
+    --chip-hipoteca-fondo:#F1EEE4; --chip-hipoteca-texto:#5C5230;
+    --blanco:#FFFFFF;
+    --sombra:0 1px 3px rgba(23,34,56,.08);
+    --radio-xs:3px; --radio-sm:4px; --radio-corte:6px; --radio-md:8px;
+    --radio-lg:12px; --radio-pill:99px;
+    --radio:var(--radio-lg);
   }
   *{margin:0;padding:0;box-sizing:border-box}
   html{font-size:16px}
-  body{background:var(--papel);color:var(--tinta);font-family:'IBM Plex Sans',sans-serif;line-height:1.5}
+  body{background:var(--papel);color:var(--tinta);font-family:'Inter',system-ui,sans-serif;line-height:1.5}
   a{color:inherit}
   button{font:inherit;cursor:pointer}
-  :focus-visible{outline:2px solid var(--tinta);outline-offset:2px}
+  :focus-visible{outline:2px solid var(--verde);outline-offset:2px}
   @media (prefers-reduced-motion: reduce){*{transition:none!important;animation:none!important}}
   [hidden]{display:none!important}
 
   .topbar{display:flex;align-items:center;gap:1rem;padding:.9rem 1.5rem;border-bottom:1px solid var(--regla);background:var(--blanco);flex-wrap:wrap}
-  .marca{font-family:'IBM Plex Serif',serif;font-weight:700;font-size:1.15rem;letter-spacing:-.01em}
-  .marca span{color:var(--guinda)}
-  .selector-anio{border:1px solid var(--regla);background:var(--papel);border-radius:4px;padding:.3rem .6rem;font-family:'IBM Plex Mono',monospace;font-size:.85rem}
+  .marca{display:flex;align-items:center;gap:.45rem;font-family:'Poppins',sans-serif;font-weight:700;font-size:1.15rem;letter-spacing:-.01em;color:var(--tinta)}
+  .marca-isotipo{flex:none}
+  .selector-anio{border:1px solid var(--regla);background:var(--papel);border-radius:var(--radio-sm);padding:.3rem .6rem;font-family:'IBM Plex Mono',monospace;font-size:.85rem}
 
   /* ---------- Navegación de primer nivel (Resumen / Facturas / Contribuyentes) ---------- */
   .tabs{display:flex;gap:.3rem}
-  .tab{background:none;border:1px solid transparent;border-radius:4px;
+  .tab{background:none;border:1px solid transparent;border-radius:var(--radio-sm);
        padding:.4rem .8rem;font-size:.85rem;font-weight:500;color:var(--tinta-suave)}
   .tab:hover{color:var(--tinta)}
   .tab.activo{background:var(--papel);border-color:var(--regla);color:var(--tinta);font-weight:600}
@@ -39,7 +55,7 @@
 
   .identidad{margin-left:auto;display:flex;align-items:center;gap:.7rem;font-size:.8rem;color:var(--tinta-suave)}
   .rfc-actual{font-family:'IBM Plex Mono',monospace}
-  .btn-plano{background:none;border:1px solid var(--regla);border-radius:4px;padding:.25rem .6rem;font-size:.75rem;color:var(--tinta-suave)}
+  .btn-plano{background:none;border:1px solid var(--regla);border-radius:var(--radio-sm);padding:.25rem .6rem;font-size:.75rem;color:var(--tinta-suave)}
   .btn-plano:hover{border-color:var(--tinta);color:var(--tinta)}
 
   /* Sin tope de ancho a propósito: la tabla de facturas es lo que más se
@@ -49,21 +65,22 @@
   .contenido{margin:0;padding:2rem 2rem 4rem}
 
   /* ---------- Acceso ---------- */
-  .acceso{max-width:380px;margin:4rem auto;background:var(--blanco);border:1px solid var(--regla);border-radius:6px;box-shadow:var(--sombra);padding:2rem}
+  .acceso{max-width:380px;margin:4rem auto;background:var(--blanco);border:1px solid var(--regla);border-radius:var(--radio);box-shadow:var(--sombra);padding:2rem}
   /* La tarjeta de Contribuyentes reutiliza el estilo .acceso (mismo look de
      formulario/tarjeta), pero ya no vive sola en una pantalla en blanco --
      el margen vertical de 4rem se quita porque el padding de .contenido y
      el topbar ya la separan de la parte de arriba; se conserva el centrado
      horizontal. */
   .pagina-tarjeta{margin:0 auto}
-  .acceso h1{font-family:'IBM Plex Serif',serif;font-size:1.4rem;margin-bottom:.4rem}
+  .acceso h1{font-family:'Poppins',sans-serif;font-weight:800;font-size:1.4rem;margin-bottom:.4rem}
   .acceso p.sub{font-size:.85rem;color:var(--tinta-suave);margin-bottom:1.4rem}
   .campo{margin-bottom:1rem}
   .campo label{display:block;font-size:.78rem;font-weight:600;margin-bottom:.3rem}
-  .campo input{width:100%;border:1px solid var(--regla);background:var(--papel);border-radius:4px;padding:.55rem .7rem;font:inherit;font-size:.9rem}
-  .btn-principal{width:100%;background:var(--tinta);color:var(--papel);border:none;border-radius:4px;padding:.65rem 1rem;font-weight:600;font-size:.9rem}
+  .campo input{width:100%;border:1px solid var(--regla);background:var(--papel);border-radius:var(--radio-sm);padding:.55rem .7rem;font:inherit;font-size:.9rem}
+  .btn-principal{width:100%;background:var(--verde);color:#fff;border:none;border-radius:var(--radio-md);padding:.65rem 1rem;font-weight:600;font-size:.9rem}
+  .btn-principal:hover:not(:disabled){background:var(--verde-osc)}
   .btn-principal:disabled{opacity:.6;cursor:not-allowed}
-  .error{background:var(--guinda-fondo);color:var(--guinda);border-left:3px solid var(--guinda);border-radius:0 4px 4px 0;padding:.6rem .8rem;font-size:.82rem;margin-bottom:1rem}
+  .error{background:var(--error-fondo);color:var(--error);border-left:3px solid var(--error);border-radius:0 var(--radio-sm) var(--radio-sm) 0;padding:.6rem .8rem;font-size:.82rem;margin-bottom:1rem}
   /* Vive fuera de las tres páginas (para avisar sin importar cuál esté
      activa), así que necesita su propio margen horizontal en vez de
      heredarlo de .contenido -- combinar ambas clases en un solo elemento
@@ -72,16 +89,23 @@
   #error-datos{margin:1.2rem 2rem 0}
 
   /* ---------- Aviso de RFC pendiente ---------- */
-  .aviso-rfc{background:var(--ambar-fondo);border:1px solid #E0CFA6;border-left:4px solid var(--ambar);border-radius:0 6px 6px 0;padding:1rem 1.2rem;margin-bottom:1.5rem}
-  .aviso-rfc h2{font-family:'IBM Plex Serif',serif;font-size:1rem;color:var(--ambar);margin-bottom:.3rem}
+  .aviso-rfc{background:var(--ambar-fondo);border:1px solid #F0CE95;border-left:4px solid var(--ambar);border-radius:0 var(--radio-corte) var(--radio-corte) 0;padding:1rem 1.2rem;margin-bottom:1.5rem}
+  .aviso-rfc h2{font-family:'Poppins',sans-serif;font-weight:700;font-size:1rem;color:var(--ambar-texto);margin-bottom:.3rem}
+  /* Informativo, no una advertencia -- usa verde (tarjetas de éxito), nunca
+     ámbar: el brand book lo reserva para advertencias reales. */
+  .aviso-info{background:var(--verde-fondo);border:1px solid #BFE8D4;border-left:4px solid var(--verde);border-radius:0 var(--radio-corte) var(--radio-corte) 0;padding:1rem 1.2rem}
+  .aviso-info h2{font-family:'Poppins',sans-serif;font-weight:700;font-size:1rem;color:var(--verde-osc);margin-bottom:.3rem}
+  .aviso-info p{font-size:.85rem;color:var(--tinta-suave)}
+  .aviso-info code{background:var(--blanco);border:1px solid var(--regla);padding:.15rem .4rem;border-radius:var(--radio-sm);font-family:'IBM Plex Mono',monospace;font-size:.85rem}
   .aviso-rfc p{font-size:.85rem;color:var(--tinta-suave);margin-bottom:.8rem}
   .fila-rfc{display:flex;gap:.5rem;flex-wrap:wrap}
-  .fila-rfc input{flex:1;min-width:180px;border:1px solid var(--regla);background:var(--blanco);border-radius:4px;padding:.45rem .7rem;font-family:'IBM Plex Mono',monospace;font-size:.85rem;text-transform:uppercase}
-  .fila-rfc button{background:var(--tinta);color:var(--papel);border:none;border-radius:4px;padding:.45rem 1rem;font-weight:600;font-size:.82rem}
+  .fila-rfc input{flex:1;min-width:180px;border:1px solid var(--regla);background:var(--blanco);border-radius:var(--radio-sm);padding:.45rem .7rem;font-family:'IBM Plex Mono',monospace;font-size:.85rem;text-transform:uppercase}
+  .fila-rfc button{background:var(--verde);color:#fff;border:none;border-radius:var(--radio-md);padding:.45rem 1rem;font-weight:600;font-size:.82rem}
+  .fila-rfc button:hover{background:var(--verde-osc)}
 
   /* ---------- Contribuyentes ---------- */
   .acceso-ancho{max-width:560px}
-  .subtitulo{font-family:'IBM Plex Serif',serif;font-size:1rem;margin:1.6rem 0 .8rem;
+  .subtitulo{font-family:'Poppins',sans-serif;font-weight:700;font-size:1rem;margin:1.6rem 0 .8rem;
              padding-top:1.2rem;border-top:1px solid var(--regla)}
   /* overflow-x:auto es la red de seguridad: si a pesar de los anchos fijos
      algo no cabe (RFC + alias largos en pantallas angostas), la tabla hace
@@ -107,13 +131,13 @@
   .tabla-rfcs td:first-child{font-family:'IBM Plex Mono',monospace;font-size:.82rem}
   .tabla-rfcs td:last-child{text-align:right}
   .etiqueta-tipo{display:inline-block;white-space:nowrap;font-size:.72rem;font-weight:600;
-                 padding:.15rem .5rem;border-radius:99px}
-  .etiqueta-tipo.fisica{background:var(--sello-fondo);color:var(--sello)}
-  .etiqueta-tipo.moral{background:#EFE9F5;color:#4C3570}
+                 padding:.15rem .5rem;border-radius:var(--radio-pill)}
+  .etiqueta-tipo.fisica{background:var(--verde-fondo);color:var(--verde-osc)}
+  .etiqueta-tipo.moral{background:var(--morado-fondo);color:var(--morado)}
   .marca-principal{font-size:.7rem;color:var(--tinta-suave);display:block}
-  .btn-quitar{white-space:nowrap;background:none;border:1px solid var(--regla);border-radius:4px;
-              padding:.2rem .55rem;font-size:.72rem;color:var(--guinda)}
-  .btn-quitar:hover{border-color:var(--guinda)}
+  .btn-quitar{white-space:nowrap;background:none;border:1px solid var(--regla);border-radius:var(--radio-sm);
+              padding:.2rem .55rem;font-size:.72rem;color:var(--error)}
+  .btn-quitar:hover{border-color:var(--error)}
   .ayuda{font-size:.76rem;color:var(--tinta-suave);margin-top:.35rem;line-height:1.45}
 
   /* ---------- Varios contribuyentes (Fase M15) ---------- */
@@ -125,18 +149,18 @@
                           margin:0 0 .5rem .1rem}
 
   /* ---------- Aviso de persona moral ---------- */
-  .aviso-moral{background:#F3F0F7;border:1px solid #DCD3E8;border-left:4px solid #4C3570;
-               border-radius:0 6px 6px 0;padding:1.1rem 1.3rem;margin-bottom:2rem}
-  .aviso-moral h2{font-family:'IBM Plex Serif',serif;font-size:1.15rem;color:#4C3570;
+  .aviso-moral{background:var(--morado-fondo);border:1px solid var(--morado-borde);border-left:4px solid var(--morado);
+               border-radius:0 var(--radio-corte) var(--radio-corte) 0;padding:1.1rem 1.3rem;margin-bottom:2rem}
+  .aviso-moral h2{font-family:'Poppins',sans-serif;font-weight:700;font-size:1.15rem;color:var(--morado);
                   margin-bottom:.4rem}
   .aviso-moral p{font-size:.85rem;color:var(--tinta-suave)}
   .aviso-moral-total{font-family:'IBM Plex Mono',monospace;font-size:.9rem;
                      color:var(--tinta);margin-top:.7rem}
 
   /* ---------- Cédula ---------- */
-  .cedula{background:var(--blanco);border:1px solid var(--regla);border-radius:6px;box-shadow:var(--sombra);margin-bottom:2rem;overflow:hidden}
+  .cedula{background:var(--blanco);border:1px solid var(--regla);border-radius:var(--radio);box-shadow:var(--sombra);margin-bottom:2rem;overflow:hidden}
   .cedula-encabezado{display:flex;align-items:baseline;justify-content:space-between;gap:1rem;padding:1.1rem 1.5rem .6rem;flex-wrap:wrap}
-  .cedula-titulo{font-family:'IBM Plex Serif',serif;font-weight:600;font-size:1.35rem}
+  .cedula-titulo{font-family:'Poppins',sans-serif;font-weight:700;font-size:1.35rem}
   .cedula-nota{font-size:.8rem;color:var(--tinta-suave)}
   .cedula-lineas{padding:0 1.5rem 1.3rem}
   .linea{display:grid;grid-template-columns:1fr auto auto;align-items:baseline;gap:1rem;padding:.55rem 0;border-top:1px dotted var(--regla)}
@@ -150,12 +174,24 @@
 
   /* ---------- Filtros ---------- */
   .filtros{display:flex;gap:.6rem;flex-wrap:wrap;margin-bottom:1rem;align-items:center}
-  .filtro{border:1px solid var(--regla);background:var(--blanco);border-radius:4px;padding:.45rem .7rem;font-size:.85rem;color:var(--tinta);font-family:inherit}
+  .filtro{border:1px solid var(--regla);background:var(--blanco);border-radius:var(--radio-sm);padding:.45rem .7rem;font-size:.85rem;color:var(--tinta);font-family:inherit}
   .buscador{flex:1;min-width:200px}
-  .buscador input{width:100%;border:1px solid var(--regla);background:var(--blanco);border-radius:4px;padding:.45rem .7rem;font-size:.85rem;font-family:inherit}
+  .btn-accion{white-space:nowrap;background:var(--blanco);border:1px solid var(--verde);
+              color:var(--verde-osc);border-radius:var(--radio-sm);padding:.45rem .8rem;
+              font-size:.85rem;font-weight:600}
+  .btn-accion:hover{background:var(--verde-fondo)}
+  .btn-accion-primario{background:var(--verde);color:#fff;border-color:var(--verde)}
+  .btn-accion-primario:hover{background:var(--verde-osc);border-color:var(--verde-osc)}
+  /* Punto verde junto al folio -- misma semántica que .estatus.valida (algo
+     bueno que pasó), no ámbar: no es una advertencia, es una confirmación. */
+  .badge-nueva{display:inline-flex;align-items:center;gap:.3rem;font-size:.68rem;
+               font-weight:700;text-transform:uppercase;letter-spacing:.04em;
+               color:var(--verde-osc);margin-left:.4rem}
+  .badge-nueva::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--verde)}
+  .buscador input{width:100%;border:1px solid var(--regla);background:var(--blanco);border-radius:var(--radio-sm);padding:.45rem .7rem;font-size:.85rem;font-family:inherit}
 
   /* ---------- Tabla ---------- */
-  .archivo{background:var(--blanco);border:1px solid var(--regla);border-radius:6px;box-shadow:var(--sombra);overflow-x:auto}
+  .archivo{background:var(--blanco);border:1px solid var(--regla);border-radius:var(--radio);box-shadow:var(--sombra);overflow-x:auto}
   table{width:100%;border-collapse:collapse;min-width:720px}
   thead th{text-align:left;font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;color:var(--tinta-suave);font-weight:600;padding:.7rem .9rem;border-bottom:1px solid var(--regla)}
   tbody td{padding:.75rem .9rem;border-bottom:1px dotted var(--regla);font-size:.88rem;vertical-align:middle}
@@ -166,11 +202,11 @@
   .folio,.rfc-col{color:var(--tinta-suave)}
   .emisor{font-weight:500}
 
-  .chip{display:inline-block;font-size:.72rem;font-weight:600;padding:.18rem .55rem;border-radius:99px;white-space:nowrap;background:#EDEAE3;color:var(--tinta-suave)}
-  .chip.medicos{background:#E8EDF5;color:#28406B}
-  .chip.colegiaturas{background:#EFE9F5;color:#4C3570}
-  .chip.seguros{background:#E9F2F2;color:#20565A}
-  .chip.hipoteca{background:#F1EEE4;color:#5C5230}
+  .chip{display:inline-block;font-size:.72rem;font-weight:600;padding:.18rem .55rem;border-radius:var(--radio-pill);white-space:nowrap;background:var(--chip-fondo);color:var(--tinta-suave)}
+  .chip.medicos{background:var(--chip-medicos-fondo);color:var(--chip-medicos-texto)}
+  .chip.colegiaturas{background:var(--chip-colegiaturas-fondo);color:var(--chip-colegiaturas-texto)}
+  .chip.seguros{background:var(--chip-seguros-fondo);color:var(--chip-seguros-texto)}
+  .chip.hipoteca{background:var(--chip-hipoteca-fondo);color:var(--chip-hipoteca-texto)}
 
   /* select-categoria hereda .chip (mismos colores por categoría) pero es un
      <select> real -- se le quita el estilo nativo del navegador para que no
@@ -184,23 +220,27 @@
                     background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath fill='%234A5568' d='M1 1l5 5 5-5'/%3E%3C/svg%3E");
                     background-repeat:no-repeat;background-position:right .4rem center;
                     background-size:.6rem}
+  /* filter en vez de un fondo con nombre: hay 5 fondos de chip distintos
+     (uno por categoría) y todos necesitan el mismo oscurecido leve al
+     pasar el mouse -- una sola regla cubre los 5 sin duplicar el token de
+     color de cada categoría en una variante ":hover". */
   .select-categoria:hover{filter:brightness(0.96)}
-  .select-categoria:focus-visible{outline:2px solid var(--tinta);outline-offset:1px}
+  .select-categoria:focus-visible{outline:2px solid var(--verde);outline-offset:1px}
 
-  .estatus{display:inline-flex;align-items:center;gap:.35rem;font-size:.76rem;font-weight:600;padding:.2rem .6rem;border-radius:3px}
+  .estatus{display:inline-flex;align-items:center;gap:.35rem;font-size:.76rem;font-weight:600;padding:.2rem .6rem;border-radius:var(--radio-xs)}
   .estatus::before{content:"";width:7px;height:7px;border-radius:50%}
-  .estatus.valida{background:var(--sello-fondo);color:var(--sello)}
-  .estatus.valida::before{background:var(--sello)}
-  .estatus.advertencia{background:var(--guinda-fondo);color:var(--guinda)}
-  .estatus.advertencia::before{background:var(--guinda)}
-  .estatus.revisar{background:var(--ambar-fondo);color:var(--ambar)}
+  .estatus.valida{background:var(--verde-fondo);color:var(--verde-osc)}
+  .estatus.valida::before{background:var(--verde)}
+  .estatus.advertencia{background:var(--ambar-fondo);color:var(--ambar-texto)}
+  .estatus.advertencia::before{background:var(--ambar)}
+  .estatus.revisar{background:var(--ambar-fondo);color:var(--ambar-texto)}
   .estatus.revisar::before{background:var(--ambar)}
-  .estatus.archivada{background:#F3F0F7;color:#4C3570}
-  .estatus.archivada::before{background:#4C3570}
+  .estatus.archivada{background:var(--morado-fondo);color:var(--morado)}
+  .estatus.archivada::before{background:var(--morado)}
 
   .acciones{white-space:nowrap}
   .btn-archivo{font-family:'IBM Plex Mono',monospace;font-size:.75rem;font-weight:500;
-           border:1px solid var(--regla);background:var(--blanco);border-radius:4px;
+           border:1px solid var(--regla);background:var(--blanco);border-radius:var(--radio-sm);
            padding:.25rem .6rem;color:var(--tinta-suave);margin-right:.3rem;
            transition:border-color .15s,color .15s}
   .btn-archivo:last-child{margin-right:0}
@@ -208,12 +248,12 @@
   .btn-archivo:disabled{opacity:.5;cursor:default}
   /* Color distinto a propósito: es la única acción destructiva de la fila,
      y debe leerse como tal antes de que alguien le dé clic por costumbre. */
-  .btn-borrar-factura{color:var(--guinda)}
-  .btn-borrar-factura:hover:not(:disabled){border-color:var(--guinda);color:var(--guinda)}
+  .btn-borrar-factura{color:var(--error)}
+  .btn-borrar-factura:hover:not(:disabled){border-color:var(--error);color:var(--error)}
 
   .fila-advertencia td{border-bottom:none;padding-bottom:.2rem}
-  .detalle-advertencia td{padding-top:0;font-size:.78rem;color:var(--guinda)}
-  .detalle-advertencia .caja{background:var(--guinda-fondo);border-left:3px solid var(--guinda);border-radius:0 4px 4px 0;padding:.5rem .8rem;display:inline-block;margin-right:.4rem}
+  .detalle-advertencia td{padding-top:0;font-size:.78rem;color:var(--ambar-texto)}
+  .detalle-advertencia .caja{background:var(--ambar-fondo);border-left:3px solid var(--ambar);border-radius:0 var(--radio-sm) var(--radio-sm) 0;padding:.5rem .8rem;display:inline-block;margin-right:.4rem}
 
   .pie{margin-top:1.5rem;font-size:.78rem;color:var(--tinta-suave);text-align:center}
 
@@ -222,6 +262,14 @@
     .cedula-encabezado,.cedula-lineas{padding-left:1rem;padding-right:1rem}
     .linea{grid-template-columns:1fr auto}
     .linea-num{display:none}
+    /* 4 selects + buscador en una sola fila se aprieta o corta por debajo
+       de 640px -- una columna evita que algún filtro quede invisible. */
+    .filtros{flex-direction:column;align-items:stretch}
+    .buscador{min-width:0}
+    /* Input + botón lado a lado puede dejar el botón "Guardar RFC"
+       partido en dos líneas en pantallas angostas. */
+    .fila-rfc{flex-direction:column;align-items:stretch}
+    .fila-rfc input{min-width:0}
   }
 </style>
 </head>
@@ -229,7 +277,17 @@
 
 <!-- ---------------- Pantalla de acceso ---------------- -->
 <section id="pantalla-acceso" class="acceso" hidden>
-  <h1>Facturas<span style="color:#7C2140">MX</span></h1>
+  <h1 style="display:flex;align-items:center;gap:.5rem;font-size:1.4rem">
+    <svg width="30" height="30" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+      <path d="M4 6a4 4 0 0 1 4-4h16a4 4 0 0 1 4 4v14a4 4 0 0 1-4 4H12l-6 6V6Z" fill="#2AB176"/>
+      <rect x="10" y="7" width="12" height="15" rx="1.5" fill="#fff"/>
+      <line x1="12.5" y1="11" x2="19.5" y2="11" stroke="#172238" stroke-width="1.4" stroke-linecap="round"/>
+      <line x1="12.5" y1="14.5" x2="19.5" y2="14.5" stroke="#172238" stroke-width="1.4" stroke-linecap="round"/>
+      <line x1="12.5" y1="18" x2="16.5" y2="18" stroke="#172238" stroke-width="1.4" stroke-linecap="round"/>
+      <path d="M24.5 2.5 25.6 5l2.5 1.1-2.5 1.1-1.1 2.5-1.1-2.5L21 6.1l2.4-1.1 1.1-2.5Z" fill="#F8A312"/>
+    </svg>
+    Facturino
+  </h1>
   <p class="sub">Entra para consultar tu archivo fiscal.</p>
   <div id="error-acceso" class="error" hidden></div>
   <form id="form-acceso">
@@ -244,7 +302,7 @@
     <button type="submit" class="btn-principal" id="btn-entrar">Entrar</button>
   </form>
   <p class="sub" style="margin-top:1rem">
-    ¿Olvidaste tu contraseña? Escríbenos por WhatsApp: <em>"olvidé mi contraseña"</em>.
+    ¿Olvidaste tu contraseña? Escríbenos por WhatsApp: <em>“olvidé mi contraseña”</em>.
   </p>
 </section>
 
@@ -304,7 +362,17 @@
      dos: administrar contribuyentes es tan central como ver facturas. -->
 <div id="app-shell" hidden>
   <header class="topbar">
-    <div class="marca">Facturas<span>MX</span></div>
+    <div class="marca">
+      <svg class="marca-isotipo" width="22" height="22" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+        <path d="M4 6a4 4 0 0 1 4-4h16a4 4 0 0 1 4 4v14a4 4 0 0 1-4 4H12l-6 6V6Z" fill="#2AB176"/>
+        <rect x="10" y="7" width="12" height="15" rx="1.5" fill="#fff"/>
+        <line x1="12.5" y1="11" x2="19.5" y2="11" stroke="#172238" stroke-width="1.4" stroke-linecap="round"/>
+        <line x1="12.5" y1="14.5" x2="19.5" y2="14.5" stroke="#172238" stroke-width="1.4" stroke-linecap="round"/>
+        <line x1="12.5" y1="18" x2="16.5" y2="18" stroke="#172238" stroke-width="1.4" stroke-linecap="round"/>
+        <path d="M24.5 2.5 25.6 5l2.5 1.1-2.5 1.1-1.1 2.5-1.1-2.5L21 6.1l2.4-1.1 1.1-2.5Z" fill="#F8A312"/>
+      </svg>
+      Facturino
+    </div>
     <nav class="tabs" aria-label="Secciones">
       <button type="button" class="tab" data-tab="resumen">Resumen</button>
       <button type="button" class="tab" data-tab="facturas">Facturas</button>
@@ -379,13 +447,26 @@
         <input type="search" id="buscador" placeholder="Buscar por emisor, RFC o folio fiscal"
                aria-label="Buscar facturas">
       </div>
+      <button type="button" class="btn-accion" id="btn-actualizar" title="Volver a cargar tus facturas">
+        Actualizar
+      </button>
+      <button type="button" class="btn-accion btn-accion-primario" id="btn-subir-factura">
+        Subir factura
+      </button>
+      <!-- XML obligatorio, PDF opcional -- se seleccionan juntos porque así
+           es como normalmente se tienen los dos archivos de un mismo CFDI.
+           `multiple` permite elegir ambos de una vez; el input se dispara
+           por click en el botón visible, nunca se muestra tal cual. -->
+      <input type="file" id="input-subir-factura" accept=".xml,.pdf" multiple hidden>
     </div>
 
-    <section class="aviso-rfc" style="margin-top:1.5rem">
+    <div id="error-subida" class="error" hidden></div>
+
+    <section class="aviso-info" style="margin-top:1.5rem">
       <h2>¿Cómo enviar facturas?</h2>
       <p>Tienes 3 formas de registrar tus comprobantes fiscales:</p>
       <ul style="margin: 0.8rem 0; padding-left: 1.5rem">
-        <li><strong>Por correo:</strong> Envía a <code style="background:#f0f0f0; padding:0.2rem 0.4rem; border-radius:3px">facturas@facturas.golfdynasty.mx</code> con el XML adjunto (y el PDF si lo tienes)</li>
+        <li><strong>Por correo:</strong> Envía a <code>facturas@facturas.golfdynasty.mx</code> con el XML adjunto (y el PDF si lo tienes)</li>
         <li><strong>Por WhatsApp:</strong> Manda el XML como documento — procesamos al instante</li>
         <li><strong>Aquí:</strong> Usa el botón "Subir factura" de esta página</li>
       </ul>
@@ -552,6 +633,20 @@
   // Si la tabla muestra la columna "Contribuyente" -- solo en modo "Todos"
   // con más de un RFC. Ver cargarDatos().
   var mostrarColumnaContribuyente = false;
+
+  // ---- Indicador de "recién subida" (Fase M19) -----------------------------
+  //
+  // Se guarda en localStorage (no en el servidor): es una preferencia de
+  // "qué ya vi en ESTE navegador", no un dato de la cuenta. En la primera
+  // visita nunca vista se fija a "ahora" -- si se dejara vacío, TODAS las
+  // facturas ya archivadas se verían como recién subidas la primera vez que
+  // alguien entra.
+  var CLAVE_ULTIMA_VISTA = "facturapp_ultima_vista_facturas";
+  var ultimaVistaFacturas = localStorage.getItem(CLAVE_ULTIMA_VISTA);
+  if (!ultimaVistaFacturas) {
+    ultimaVistaFacturas = new Date().toISOString();
+    localStorage.setItem(CLAVE_ULTIMA_VISTA, ultimaVistaFacturas);
+  }
 
   function $(id) { return document.getElementById(id); }
 
@@ -1089,6 +1184,66 @@
     }
   }
 
+  // ---- Actualizar / Subir factura (Fase M19) -------------------------------
+
+  $("btn-actualizar").addEventListener("click", async function () {
+    var btn = $("btn-actualizar");
+    btn.disabled = true;
+    try {
+      await cargarDatos();
+      // Se marca "visto" DESPUÉS de recargar, no antes: si se fijara primero
+      // y la petición fallara, facturas nuevas que nunca llegaron a
+      // mostrarse quedarían marcadas como ya vistas.
+      ultimaVistaFacturas = new Date().toISOString();
+      localStorage.setItem(CLAVE_ULTIMA_VISTA, ultimaVistaFacturas);
+      aplicarFiltros();
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  $("btn-subir-factura").addEventListener("click", function () {
+    $("input-subir-factura").click();
+  });
+
+  $("input-subir-factura").addEventListener("change", async function () {
+    var archivos = Array.prototype.slice.call($("input-subir-factura").files || []);
+    $("input-subir-factura").value = ""; // permite re-seleccionar el mismo archivo después
+    if (!archivos.length) return;
+
+    var xml = archivos.find(function (f) { return /\.xml$/i.test(f.name); });
+    var pdf = archivos.find(function (f) { return /\.pdf$/i.test(f.name); });
+    mostrarError("error-subida", "");
+    if (!xml) {
+      mostrarError("error-subida", "Selecciona el archivo XML de la factura (el PDF solo no basta para deducir).");
+      return;
+    }
+
+    var btn = $("btn-subir-factura");
+    btn.disabled = true;
+    var textoOriginal = btn.textContent;
+    btn.textContent = "Subiendo…";
+    try {
+      var form = new FormData();
+      form.append("xml", xml);
+      if (pdf) form.append("pdf", pdf);
+
+      var resp = await pedir("/api-invoice-upload", { method: "POST", body: form });
+      if (!resp) return;
+      var cuerpo = await resp.json();
+      if (!resp.ok) {
+        mostrarError("error-subida", cuerpo.detail || "No se pudo subir la factura.");
+        return;
+      }
+      await cargarDatos();
+    } catch (e) {
+      mostrarError("error-subida", "No se pudo conectar con el servidor.");
+    } finally {
+      btn.disabled = false;
+      btn.textContent = textoOriginal;
+    }
+  });
+
   /** Una tarjeta por contribuyente: cédula si es persona física, aviso de
    * "archivada, sin evaluar" si es moral. Con un solo contribuyente (el
    * caso normal) no se muestra ningún encabezado con su nombre -- sería
@@ -1247,7 +1402,9 @@
         '<td class="fecha">' + fechaCorta(inv.fecha_emision) + '</td>' +
         '<td class="emisor">' + escapeHtml(inv.emisor_nombre) + '</td>' +
         '<td class="rfc-col">' + escapeHtml(inv.receptor_rfc || "—") + '</td>' +
-        '<td class="folio">' + escapeHtml(folioCorto(inv.uuid)) + '</td>' +
+        '<td class="folio">' + escapeHtml(folioCorto(inv.uuid)) +
+          (inv.created_at && inv.created_at > ultimaVistaFacturas
+            ? '<span class="badge-nueva">Nueva</span>' : '') + '</td>' +
         '<td>' + celdaCategoria(inv, chip) + '</td>' +
         '<td><span class="estatus ' + est[0] + '">' + escapeHtml(est[1]) + '</span></td>' +
         '<td class="monto">' + money(inv.total) + '</td>' +

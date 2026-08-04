@@ -18,7 +18,7 @@ const GREETING = /^(hola|buenas|hey|buen[oa]s?\s*d[ií]as?|buenas\s*tardes|buena
 const HELP = /^(ayuda|help|comandos?|qu[eé]\s*puedes\s*hacer)[\s?!.]*$/i;
 
 const GREETING_REPLY =
-  "¡Hola! 🧾 Soy el asistente de FacturasMX. Mándame el XML de una factura " +
+  "¡Hola! 🧾 Soy el asistente de Facturino. Mándame el XML de una factura " +
   "para registrarla, o pregúntame cosas como \"¿cuánto llevo en médicos?\" " +
   "o \"mis facturas de este mes\". Escribe *ayuda* para ver todo lo que puedo hacer.";
 

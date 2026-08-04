@@ -262,7 +262,7 @@ Deno.test("buildSystemPrompt: instruye explícitamente a no suponer la fecha", (
 
 Deno.test("buildSystemPrompt: conserva las instrucciones base", () => {
   const prompt = buildSystemPrompt(new Date("2026-07-30T15:00:00Z"));
-  assert(prompt.includes("FacturasMX"));
+  assert(prompt.includes("Facturino"));
   assert(prompt.includes("No inventes cifras"));
 });
 

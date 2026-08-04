@@ -95,6 +95,11 @@ export interface InvoiceDict {
    * mismo listado una vez por RFC.
    */
   usuario_rfc: string;
+  /** Cuándo se archivó (Fase M19) -- distinto de `fecha_emision` (la fecha
+   * fiscal del CFDI): esta es la fecha de INGESTA, la que permite marcar
+   * "recién subida" en el dashboard sin importar qué tan vieja sea la
+   * factura misma. */
+  created_at: string;
 }
 
 /** Port 1:1 de `list_invoices()` (endpoint REST) + `Invoice.to_dict()`. */
@@ -105,7 +110,7 @@ export async function listInvoicesForUser(
   let query = supabase
     .schema("facturapp").from("invoices")
     .select(
-      "id, uuid_fiscal, emisor_rfc, emisor_nombre, receptor_rfc, fecha_emision, anio, subtotal, iva, total, uso_cfdi, forma_pago, metodo_pago, clave_prod_principal, concepto_descripcion, categoria, confianza, estatus, hallazgos, pdf_path, usuario_rfc",
+      "id, uuid_fiscal, emisor_rfc, emisor_nombre, receptor_rfc, fecha_emision, anio, subtotal, iva, total, uso_cfdi, forma_pago, metodo_pago, clave_prod_principal, concepto_descripcion, categoria, confianza, estatus, hallazgos, pdf_path, usuario_rfc, created_at",
     )
     .eq("user_id", userId).eq("anio", year);
   if (rfc) query = query.eq("usuario_rfc", rfc);
@@ -135,6 +140,7 @@ export async function listInvoicesForUser(
     hallazgos: r.hallazgos ?? [],
     tiene_pdf: Boolean(r.pdf_path),
     usuario_rfc: r.usuario_rfc,
+    created_at: r.created_at,
   }));
   return { year, invoices };
 }
