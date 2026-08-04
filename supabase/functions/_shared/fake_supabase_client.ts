@@ -82,6 +82,8 @@ export class FakeSupabaseClient {
 class FakeQueryBuilder {
   private filters: Array<[string, unknown]> = [];
   private negados: Array<[string, unknown]> = [];
+  private likes: Array<[string, string]> = [];
+  private ins: Array<[string, unknown[]]> = [];
   private selectCols: string | null = null;
   private mode: "select" | "insert" | "update" | "delete" = "select";
   private insertRow: Row | null = null;
@@ -104,6 +106,20 @@ class FakeQueryBuilder {
   /** Fase M11 — lo usa rfcTomadoPorOtro() para excluirse a sí mismo. */
   neq(col: string, value: unknown) {
     this.negados.push([col, value]);
+    return this;
+  }
+
+  /** Fase M20 — lo usa facturasQueNecesitanAtencion() para filtrar por mes
+   * (`fecha_emision like '2026-08%'`). Solo soporta `%` como comodín (lo
+   * único que usa el código real); `_` no se traduce. */
+  like(col: string, pattern: string) {
+    this.likes.push([col, pattern]);
+    return this;
+  }
+
+  /** Fase M20 — lo usa facturasQueNecesitanAtencion() para el estatus. */
+  in(col: string, values: unknown[]) {
+    this.ins.push([col, values]);
     return this;
   }
 
@@ -138,7 +154,13 @@ class FakeQueryBuilder {
   private matchRows(): Row[] {
     const rows = this.client.tables[this.table].filter((row) =>
       this.filters.every(([col, val]) => row[col] === val) &&
-      this.negados.every(([col, val]) => row[col] !== val)
+      this.negados.every(([col, val]) => row[col] !== val) &&
+      this.likes.every(([col, pattern]) => {
+        const escaped = pattern.split("%").map((s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+        const regex = new RegExp(`^${escaped.join(".*")}$`);
+        return regex.test(String(row[col] ?? ""));
+      }) &&
+      this.ins.every(([col, values]) => values.includes(row[col]))
     );
     if (this.orderBy) {
       const { col, ascending } = this.orderBy;

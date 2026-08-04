@@ -230,6 +230,54 @@ export async function sendWhatsappMessage(
   return await resp.json();
 }
 
+/**
+ * Envía un mensaje de PLANTILLA pre-aprobada (Fase M20).
+ *
+ * `sendWhatsappMessage()` (texto libre) solo funciona dentro de la ventana de
+ * 24 horas desde el último mensaje del usuario -- fuera de eso, Meta la
+ * rechaza. El aviso mensual de facturas pendientes es, casi siempre,
+ * exactamente ese caso: nadie le escribió a la cuenta justo antes de que
+ * corriera el job. Por eso este mensaje SIEMPRE se manda como plantilla,
+ * nunca como texto libre.
+ *
+ * La plantilla (nombre + idioma + variables del cuerpo) debe existir y estar
+ * aprobada en Meta Business Manager antes de que esto funcione -- eso es un
+ * trámite externo, no algo que el código pueda resolver solo.
+ */
+export async function sendWhatsappTemplateMessage(
+  phone: string,
+  templateName: string,
+  languageCode: string,
+  bodyParams: string[],
+  token: string,
+  phoneNumberId: string,
+): Promise<unknown> {
+  const url = `${GRAPH_API_BASE}/${phoneNumberId}/messages`;
+  const resp = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      messaging_product: "whatsapp",
+      to: phone,
+      type: "template",
+      template: {
+        name: templateName,
+        language: { code: languageCode },
+        components: bodyParams.length
+          ? [{ type: "body", parameters: bodyParams.map((texto) => ({ type: "text", text: texto })) }]
+          : undefined,
+      },
+    }),
+  });
+  if (!resp.ok) {
+    throw new Error(`Graph API (enviar plantilla): ${resp.status} ${resp.statusText} — ${await resp.text()}`);
+  }
+  return await resp.json();
+}
+
 // ---------------------------------------------------------------------
 // Traducción de resultado de ingesta → mensaje de WhatsApp
 // ---------------------------------------------------------------------

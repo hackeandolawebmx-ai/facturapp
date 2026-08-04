@@ -420,6 +420,17 @@
       </div>
     </section>
 
+    <!-- Fase M20 -- solo facturas del mes en curso con advertencia, por
+         revisar o rechazadas. `archivada` (persona moral) queda fuera a
+         propósito: no es un problema, ver attention.ts. -->
+    <section class="aviso-rfc" id="aviso-atencion" hidden>
+      <h2>Facturas que necesitan tu atención</h2>
+      <p id="texto-atencion"></p>
+      <button type="button" class="btn-accion btn-accion-primario" id="btn-ver-atencion">
+        Ver en Facturas
+      </button>
+    </section>
+
     <!-- Una tarjeta por contribuyente (Fase M15): con un solo RFC en la
          cuenta, esto renderiza exactamente una cédula, igual que antes. Con
          varios, se apilan una cédula por cada RFC físico y un aviso de
@@ -1179,10 +1190,46 @@
 
       poblarCategorias();
       aplicarFiltros();
+      actualizarAvisoAtencion();
     } catch (e) {
       mostrarError("error-datos", "No se pudo conectar con el servidor.");
     }
   }
+
+  // ---- Aviso de atención (Fase M20) ----------------------------------------
+  //
+  // Mismos tres estatus que facturasQueNecesitanAtencion() en el backend
+  // (advertencia/por_revisar/rechazada) -- `archivada` no cuenta, no es un
+  // problema. Se calcula sobre `facturas`, ya cargado por cargarDatos() para
+  // el año seleccionado: si ese año no es el actual, ninguna factura
+  // coincide con "el mes en curso" y el aviso simplemente no aparece.
+  var ESTATUS_ATENCION = ["advertencia", "por_revisar", "rechazada"];
+
+  function actualizarAvisoAtencion() {
+    var hoy = new Date();
+    var anioActual = hoy.getFullYear();
+    var mesActual = String(hoy.getMonth() + 1).padStart(2, "0");
+
+    var pendientes = facturas.filter(function (f) {
+      var fecha = String(f.fecha_emision || "");
+      return fecha.slice(0, 4) === String(anioActual) &&
+             fecha.slice(5, 7) === mesActual &&
+             ESTATUS_ATENCION.indexOf(f.estatus) !== -1;
+    });
+
+    if (!pendientes.length) {
+      $("aviso-atencion").hidden = true;
+      return;
+    }
+    $("texto-atencion").textContent = pendientes.length + " factura" +
+      (pendientes.length === 1 ? "" : "s") + " de " + MESES_LARGOS[hoy.getMonth()] +
+      " con advertencia, por revisar o rechazada. Revísalas antes de declarar.";
+    $("aviso-atencion").hidden = false;
+  }
+
+  $("btn-ver-atencion").addEventListener("click", function () {
+    mostrarPagina("facturas");
+  });
 
   // ---- Actualizar / Subir factura (Fase M19) -------------------------------
 
