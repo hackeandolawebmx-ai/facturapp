@@ -14,7 +14,7 @@ Facturino es un asistente fiscal que vive en WhatsApp. El usuario le manda una f
 
 ### Los cuatro pilares
 
-| Pilar | Qué significa |
+| Pilar | Qué significa |.
 |---|---|
 | **Sin fricción** | Vive donde el usuario ya está. No pedimos que aprenda una herramienta nueva ni que cambie su rutina. |
 | **Inteligencia real** | No solo guarda archivos: entiende las reglas del SAT, detecta duplicados y avisa cuando algo no cuadra. |
