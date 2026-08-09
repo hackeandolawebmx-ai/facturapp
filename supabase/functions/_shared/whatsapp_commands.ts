@@ -43,6 +43,87 @@ export function interceptQuickCommand(text: string): string | null {
 }
 
 // ---------------------------------------------------------------------------
+// Menú interactivo (botones de lista de WhatsApp)
+//
+// Antes de esto, un usuario nuevo solo recibía texto explicando qué escribir
+// -- funcionaba, pero exigía que adivinara la frase correcta ("¿cuánto
+// llevo?", "olvidé mi contraseña"...). El menú de lista nativo de WhatsApp
+// le da opciones para tocar en vez de redactar. Se dispara con el mismo
+// saludo/ayuda de siempre, más la palabra explícita "menu".
+// ---------------------------------------------------------------------------
+
+const MENU_KEYWORD = /^(menu|men[uú]|opciones|inicio|start)[\s!.?]*$/i;
+
+/** ¿El usuario pidió ver el menú? Cubre saludo, ayuda, y la palabra directa. */
+export function esPeticionDeMenu(text: string): boolean {
+  const trimmed = text.trim();
+  return GREETING.test(trimmed) || HELP.test(trimmed) || MENU_KEYWORD.test(trimmed);
+}
+
+export interface FilaMenu { id: string; title: string; description: string }
+export interface SeccionMenu { title: string; rows: FilaMenu[] }
+export interface MenuPrincipal {
+  header: string; body: string; footer: string; boton: string; secciones: SeccionMenu[];
+}
+
+export const MENU_PRINCIPAL: MenuPrincipal = {
+  header: "Facturino",
+  body: "¿Qué necesitas? Elige una opción, o en cualquier momento mándame el XML de una factura o escríbeme lo que sea.",
+  footer: "Facturino · Deducciones sin esfuerzo",
+  boton: "Ver opciones",
+  secciones: [
+    {
+      title: "Facturas",
+      rows: [
+        { id: "menu_registrar", title: "📄 Registrar factura", description: "Cómo mandarme el XML" },
+        { id: "menu_envio", title: "📥 Formas de envío", description: "Correo, WhatsApp o la web" },
+        { id: "menu_mis_facturas", title: "🗂️ Mis facturas", description: "Ver lo que llevas este mes" },
+      ],
+    },
+    {
+      title: "Deducciones",
+      rows: [
+        { id: "menu_resumen", title: "💰 ¿Cuánto llevo?", description: "Resumen de tus deducciones" },
+        { id: "menu_deducible", title: "❓ ¿Qué es deducible?", description: "Guía rápida de categorías" },
+      ],
+    },
+    {
+      title: "Tu cuenta",
+      rows: [
+        { id: "menu_web", title: "🌐 Entrar a la web", description: "Panel completo desde la computadora" },
+        { id: "menu_password", title: "🔑 Contraseña olvidada", description: "Recupera el acceso a la web" },
+      ],
+    },
+  ],
+};
+
+/** Respuesta fija para "registrar factura": no hay una frase de texto que
+ * dispare esto por sí sola (registrar no es una PREGUNTA), así que no pasa
+ * por `TEXTO_DE_FILA_MENU` como las demás filas. */
+export const MENSAJE_COMO_REGISTRAR =
+  "Mándame el XML de la factura como documento (el archivo .xml, no una foto ni el PDF) " +
+  "y lo registro y clasifico al instante.";
+
+/** Traduce el id de una fila del menú a la frase de texto equivalente, para
+ * reusar exactamente la misma lógica de intents que ya procesa mensajes de
+ * texto (esPeticionDeEnlaceWeb, esPeticionDeRecuperarPassword, chat()...).
+ * Así el menú no duplica ninguna decisión: solo simula lo que el usuario
+ * habría escrito. `menu_registrar` no aparece aquí porque tiene su propia
+ * respuesta fija (MENSAJE_COMO_REGISTRAR), sin pasar por texto. */
+const TEXTO_DE_FILA_MENU: Record<string, string> = {
+  menu_envio: "¿cómo envío mis facturas?",
+  menu_mis_facturas: "mis facturas de este mes",
+  menu_resumen: "¿cuánto llevo deducido?",
+  menu_deducible: "¿qué puedo deducir?",
+  menu_web: "quiero entrar a la plataforma web",
+  menu_password: "olvidé mi contraseña",
+};
+
+export function textoDeFilaMenu(id: string): string | null {
+  return TEXTO_DE_FILA_MENU[id] ?? null;
+}
+
+// ---------------------------------------------------------------------------
 // Acceso a la web (Fase M12)
 // ---------------------------------------------------------------------------
 

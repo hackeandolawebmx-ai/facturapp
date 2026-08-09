@@ -1,8 +1,9 @@
 import { assert, assertEquals } from "jsr:@std/assert@1";
 import {
-  esPeticionDeEnlaceWeb, esPeticionDeRecuperarPassword, esPeticionDeEnvioFacturas,
-  interceptQuickCommand, mensajeEnlaceAlta, mensajeEnlaceLogin, mensajeEnlaceReset,
-  mensajeFormasEnvio,
+  esPeticionDeEnlaceWeb, esPeticionDeEnvioFacturas, esPeticionDeMenu,
+  esPeticionDeRecuperarPassword, interceptQuickCommand, mensajeEnlaceAlta,
+  mensajeEnlaceLogin, mensajeEnlaceReset, mensajeFormasEnvio, MENU_PRINCIPAL,
+  textoDeFilaMenu,
 } from "./whatsapp_commands.ts";
 
 Deno.test("interceptQuickCommand: saludo simple devuelve respuesta fija", () => {
@@ -159,5 +160,34 @@ Deno.test("mensajeFormasEnvio: incluye email, WhatsApp y web como formas", () =>
   assert(m.includes("facturas@x.com"));
   assert(m.includes("WhatsApp"));
   assert(m.includes("https://x.com"));
+});
+
+// ---- Menú interactivo (Fase M21) --------------------------------------------
+
+Deno.test("esPeticionDeMenu: reconoce saludo, ayuda y la palabra 'menu'", () => {
+  for (const frase of ["hola", "Hola!", "buenas tardes", "ayuda", "menu", "menú", "opciones", "inicio", "start"]) {
+    assertEquals(esPeticionDeMenu(frase), true, `no reconoció: ${frase}`);
+  }
+});
+
+Deno.test("esPeticionDeMenu: NO intercepta consultas fiscales reales", () => {
+  assertEquals(esPeticionDeMenu("hola, cuánto llevo en médicos"), false);
+  assertEquals(esPeticionDeMenu("mis facturas de julio"), false);
+});
+
+Deno.test("MENU_PRINCIPAL: cada fila cabe dentro de los límites de WhatsApp (title<=24, description<=72)", () => {
+  for (const seccion of MENU_PRINCIPAL.secciones) {
+    assert(seccion.title.length <= 24, `título de sección muy largo: ${seccion.title}`);
+    for (const fila of seccion.rows) {
+      assert(fila.title.length <= 24, `título de fila muy largo: ${fila.title}`);
+      assert(fila.description.length <= 72, `descripción muy larga: ${fila.description}`);
+    }
+  }
+});
+
+Deno.test("textoDeFilaMenu: traduce los ids conocidos a la frase de texto equivalente", () => {
+  assertEquals(textoDeFilaMenu("menu_web"), "quiero entrar a la plataforma web");
+  assertEquals(textoDeFilaMenu("menu_password"), "olvidé mi contraseña");
+  assertEquals(textoDeFilaMenu("menu_id_inventado"), null);
 });
 

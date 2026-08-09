@@ -9,7 +9,8 @@
 import { createHmac } from "node:crypto";
 import { assertEquals } from "jsr:@std/assert@1";
 import {
-  extractWhatsappMessages, extractWhatsappTextMessages, verifyWhatsappSignature, whatsappReplyText,
+  extractWhatsappInteractiveReplies, extractWhatsappMessages, extractWhatsappTextMessages,
+  verifyWhatsappSignature, whatsappReplyText,
 } from "./whatsapp.ts";
 
 const enc = (s: string) => new TextEncoder().encode(s);
@@ -136,6 +137,50 @@ Deno.test("extractWhatsappTextMessages: texto vacío (solo espacios) se ignora",
     ] } }] }],
   };
   assertEquals(extractWhatsappTextMessages(payload), []);
+});
+
+// ---- extractWhatsappInteractiveReplies (Fase M21) ---------------------------
+
+Deno.test("extractWhatsappInteractiveReplies: extrae id de list_reply con remitente y profile_name", () => {
+  const payload = {
+    entry: [{ changes: [{ value: {
+      contacts: [{ wa_id: "555", profile: { name: "Cliente WA" } }],
+      messages: [{
+        from: "555", type: "interactive",
+        interactive: { type: "list_reply", list_reply: { id: "menu_resumen", title: "💰 ¿Cuánto llevo?" } },
+      }],
+    } }] }],
+  };
+  const replies = extractWhatsappInteractiveReplies(payload);
+  assertEquals(replies.length, 1);
+  assertEquals(replies[0], { from: "555", id: "menu_resumen", profile_name: "Cliente WA" });
+});
+
+Deno.test("extractWhatsappInteractiveReplies: ignora mensajes que no son interactive", () => {
+  const payload = metaDocumentPayload("5511111111111");
+  assertEquals(extractWhatsappInteractiveReplies(payload), []);
+});
+
+Deno.test("extractWhatsappInteractiveReplies: ignora interactive que no es list_reply (ej. button_reply)", () => {
+  const payload = {
+    entry: [{ changes: [{ value: { messages: [
+      { from: "555", type: "interactive", interactive: { type: "button_reply", button_reply: { id: "x" } } },
+    ] } }] }],
+  };
+  assertEquals(extractWhatsappInteractiveReplies(payload), []);
+});
+
+Deno.test("extractWhatsappInteractiveReplies: list_reply sin id se ignora", () => {
+  const payload = {
+    entry: [{ changes: [{ value: { messages: [
+      { from: "555", type: "interactive", interactive: { type: "list_reply", list_reply: {} } },
+    ] } }] }],
+  };
+  assertEquals(extractWhatsappInteractiveReplies(payload), []);
+});
+
+Deno.test("extractWhatsappInteractiveReplies: payload vacío devuelve []", () => {
+  assertEquals(extractWhatsappInteractiveReplies({}), []);
 });
 
 Deno.test("extractWhatsappTextMessages: payload vacío devuelve []", () => {

@@ -174,6 +174,52 @@ export function extractWhatsappTextMessages(payload: { entry?: unknown[] }): Ext
   return results;
 }
 
+export interface ExtractedInteractiveReply {
+  from: string;
+  id: string;
+  profile_name: string | null;
+}
+
+/** Igual que extractWhatsappTextMessages(), pero para la respuesta a un
+ * mensaje de lista interactiva (botón de menú tocado) en vez de texto
+ * escrito a mano. Meta manda `type: "interactive"` con
+ * `interactive.list_reply.id` -- el id de la fila que se definió al mandar
+ * el menú (ver sendWhatsappListMessage). */
+export function extractWhatsappInteractiveReplies(
+  payload: { entry?: unknown[] },
+): ExtractedInteractiveReply[] {
+  const entries = (payload.entry ?? []) as Array<Record<string, unknown>>;
+  const results: ExtractedInteractiveReply[] = [];
+
+  for (const entry of entries) {
+    const changes = (entry.changes ?? []) as Array<Record<string, unknown>>;
+    for (const change of changes) {
+      const value = (change.value ?? {}) as Record<string, unknown>;
+      const contacts = (value.contacts ?? []) as Array<Record<string, unknown>>;
+      const profileNames = new Map<string, string | null>();
+      for (const c of contacts) {
+        const waId = c.wa_id as string | undefined;
+        const profile = (c.profile ?? {}) as Record<string, unknown>;
+        if (waId) profileNames.set(waId, (profile.name as string) ?? null);
+      }
+
+      const messages = (value.messages ?? []) as Array<Record<string, unknown>>;
+      for (const msg of messages) {
+        if (msg.type !== "interactive") continue;
+        const interactive = (msg.interactive ?? {}) as Record<string, unknown>;
+        if (interactive.type !== "list_reply") continue;
+        const listReply = (interactive.list_reply ?? {}) as Record<string, unknown>;
+        const id = listReply.id as string | undefined;
+        if (!id) continue;
+
+        const phone = (msg.from as string) ?? "";
+        results.push({ from: phone, id, profile_name: profileNames.get(phone) ?? null });
+      }
+    }
+  }
+  return results;
+}
+
 // ---------------------------------------------------------------------
 // Graph API: descargar media (dos pasos) y enviar mensajes
 // ---------------------------------------------------------------------
@@ -226,6 +272,64 @@ export async function sendWhatsappMessage(
   });
   if (!resp.ok) {
     throw new Error(`Graph API (enviar mensaje): ${resp.status} ${resp.statusText}`);
+  }
+  return await resp.json();
+}
+
+export interface FilaMenuWhatsapp { id: string; title: string; description: string }
+export interface SeccionMenuWhatsapp { title: string; rows: FilaMenuWhatsapp[] }
+export interface MenuListaWhatsapp {
+  header: string; body: string; footer: string; boton: string; secciones: SeccionMenuWhatsapp[];
+}
+
+/**
+ * Envía un menú de lista interactivo (Fase M21) -- las opciones tocables que
+ * WhatsApp muestra en una hoja inferior, agrupadas por sección.
+ *
+ * Structuralmente separado de sendWhatsappMessage(): ese manda texto plano,
+ * este arma el payload `type: "interactive"` que exige la Graph API para
+ * listas (header/body/footer + action.sections[].rows[]). El contenido del
+ * menú (textos, ids) vive en whatsapp_commands.ts -- este módulo solo hace
+ * la llamada HTTP, igual que con el resto de mensajes salientes.
+ */
+export async function sendWhatsappListMessage(
+  phone: string,
+  menu: MenuListaWhatsapp,
+  token: string,
+  phoneNumberId: string,
+): Promise<unknown> {
+  const url = `${GRAPH_API_BASE}/${phoneNumberId}/messages`;
+  const resp = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      messaging_product: "whatsapp",
+      to: phone,
+      type: "interactive",
+      interactive: {
+        type: "list",
+        header: { type: "text", text: menu.header },
+        body: { text: menu.body },
+        footer: { text: menu.footer },
+        action: {
+          button: menu.boton,
+          sections: menu.secciones.map((seccion) => ({
+            title: seccion.title,
+            rows: seccion.rows.map((fila) => ({
+              id: fila.id,
+              title: fila.title,
+              description: fila.description,
+            })),
+          })),
+        },
+      },
+    }),
+  });
+  if (!resp.ok) {
+    throw new Error(`Graph API (enviar menú): ${resp.status} ${resp.statusText} — ${await resp.text()}`);
   }
   return await resp.json();
 }

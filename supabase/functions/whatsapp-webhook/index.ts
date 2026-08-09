@@ -25,13 +25,15 @@ import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { corsHeaders, jsonHeaders } from "../_shared/cors.ts";
 import {
-  downloadMediaFromMeta, extractWhatsappMessages, extractWhatsappTextMessages,
-  sendWhatsappMessage, verifyWhatsappSignature, whatsappReplyText,
+  downloadMediaFromMeta, extractWhatsappInteractiveReplies, extractWhatsappMessages,
+  extractWhatsappTextMessages, sendWhatsappListMessage, sendWhatsappMessage,
+  verifyWhatsappSignature, whatsappReplyText,
 } from "../_shared/whatsapp.ts";
 import {
-  esPeticionDeEnlaceWeb, esPeticionDeRecuperarPassword, esPeticionDeEnvioFacturas,
-  interceptQuickCommand, mensajeEnlaceAlta, mensajeEnlaceLogin, mensajeEnlaceReset,
-  mensajeFormasEnvio, MENSAJE_WEB_NO_DISPONIBLE,
+  esPeticionDeEnlaceWeb, esPeticionDeEnvioFacturas, esPeticionDeMenu,
+  esPeticionDeRecuperarPassword, interceptQuickCommand, mensajeEnlaceAlta,
+  mensajeEnlaceLogin, mensajeEnlaceReset, mensajeFormasEnvio, MENSAJE_COMO_REGISTRAR,
+  MENSAJE_WEB_NO_DISPONIBLE, MENU_PRINCIPAL, textoDeFilaMenu,
 } from "../_shared/whatsapp_commands.ts";
 import { generarResetToken, getOrCreateUserByPhone, getUserAuth } from "../_shared/users.ts";
 import { ingestInvoice } from "../_shared/invoices.ts";
@@ -65,6 +67,22 @@ async function handleTextMessage(
   whatsappToken: string, phoneNumberId: string,
 ): Promise<Record<string, unknown>> {
   const user = await getOrCreateUserByPhone(supabase, msg.from, msg.profile_name);
+
+  // Menú (M21). Saludo, "ayuda" o la palabra "menu" mandan, además del texto
+  // de siempre, un menú tocable -- así un usuario nuevo no depende de
+  // adivinar la frase exacta para cada función. Va antes que
+  // interceptQuickCommand porque decide SI se agrega el menú a la respuesta;
+  // interceptQuickCommand decide el texto que la acompaña (o ninguno, si
+  // el disparador fue la palabra "menu" a secas).
+  if (esPeticionDeMenu(msg.text)) {
+    const textoQuickCommand = interceptQuickCommand(msg.text);
+    if (textoQuickCommand !== null) {
+      await sendWhatsappMessage(msg.from, textoQuickCommand, whatsappToken, phoneNumberId);
+    }
+    await logDebug(supabase, "whatsapp: menú", { from: msg.from, text: msg.text });
+    await sendWhatsappListMessage(msg.from, MENU_PRINCIPAL, whatsappToken, phoneNumberId);
+    return { from: msg.from, tipo: "menu" };
+  }
 
   const quickReply = interceptQuickCommand(msg.text);
   if (quickReply !== null) {
@@ -155,6 +173,38 @@ async function handleTextMessage(
   return { from: msg.from, tipo: "chat", tools_used: result.tools_used };
 }
 
+/** Procesa el toque a una fila del menú (M21).
+ *
+ * "menu_registrar" tiene una respuesta fija propia porque no hay una
+ * PREGUNTA de texto equivalente (registrar es una acción, no algo que se
+ * pregunte). El resto de las filas se traduce a la frase que un usuario
+ * habría escrito (textoDeFilaMenu) y se reenvía a handleTextMessage -- así
+ * el menú no reimplementa ninguna decisión, solo la dispara.
+ */
+async function handleInteractiveReply(
+  // deno-lint-ignore no-explicit-any
+  supabase: any, msg: { from: string; id: string; profile_name: string | null },
+  whatsappToken: string, phoneNumberId: string,
+): Promise<Record<string, unknown>> {
+  if (msg.id === "menu_registrar") {
+    await logDebug(supabase, "whatsapp: menú → registrar factura", { from: msg.from });
+    await sendWhatsappMessage(msg.from, MENSAJE_COMO_REGISTRAR, whatsappToken, phoneNumberId);
+    return { from: msg.from, tipo: "menu_registrar" };
+  }
+
+  const textoSintetico = textoDeFilaMenu(msg.id);
+  if (textoSintetico === null) {
+    await logDebug(supabase, "whatsapp: menú → id desconocido", { from: msg.from, id: msg.id });
+    await sendWhatsappListMessage(msg.from, MENU_PRINCIPAL, whatsappToken, phoneNumberId);
+    return { from: msg.from, tipo: "menu_id_desconocido", id: msg.id };
+  }
+
+  return await handleTextMessage(
+    supabase, { from: msg.from, text: textoSintetico, profile_name: msg.profile_name },
+    whatsappToken, phoneNumberId,
+  );
+}
+
 async function handleIncoming(req: Request): Promise<Response> {
   const bodyBytes = new Uint8Array(await req.arrayBuffer());
   const signature = req.headers.get("X-Hub-Signature-256");
@@ -240,6 +290,17 @@ async function handleIncoming(req: Request): Promise<Response> {
       console.error(`Error procesando mensaje de texto de ${msg.from}:`, exc);
       await logDebug(supabase, "whatsapp: error en chat", { from: msg.from, error: String(exc) });
       resultados.push({ from: msg.from, error: "No se pudo procesar tu mensaje" });
+    }
+  }
+
+  const interactivos = extractWhatsappInteractiveReplies(payload);
+  for (const msg of interactivos) {
+    try {
+      resultados.push(await handleInteractiveReply(supabase, msg, whatsappToken, phoneNumberId));
+    } catch (exc) {
+      console.error(`Error procesando respuesta de menú de ${msg.from}:`, exc);
+      await logDebug(supabase, "whatsapp: error en menú", { from: msg.from, error: String(exc) });
+      resultados.push({ from: msg.from, error: "No se pudo procesar tu selección" });
     }
   }
 
