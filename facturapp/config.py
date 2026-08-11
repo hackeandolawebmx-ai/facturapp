@@ -38,7 +38,7 @@ class Settings(BaseSettings):
 
     # --- LLM (OpenAI) ---
     openai_api_key: str = ""
-    openai_model: str = "gpt-4o"
+    openai_model: str = "gpt-5.6"
 
     # --- WhatsApp (Meta Cloud API, Fase 3b) ---
     whatsapp_token: str = ""              # access token (Graph API: descargar media + enviar mensajes)
