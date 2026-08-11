@@ -154,7 +154,7 @@ async function handleTextMessage(
 
   const history = await getRecentChatHistory(supabase, user.id);
   const apiKey = Deno.env.get("OPENAI_API_KEY") ?? "";
-  const model = Deno.env.get("OPENAI_MODEL") ?? "gpt-5.6";
+  const model = Deno.env.get("OPENAI_MODEL") ?? "gpt-4o";
 
   const result = await chat(
     supabase, user, msg.text,

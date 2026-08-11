@@ -55,7 +55,7 @@ async function handlePost(req: Request): Promise<Response> {
     .insert({ user_id: user.id, role: "user", content: message });
 
   const apiKey = Deno.env.get("OPENAI_API_KEY") ?? "";
-  const model = Deno.env.get("OPENAI_MODEL") ?? "gpt-5.6";
+  const model = Deno.env.get("OPENAI_MODEL") ?? "gpt-4o";
 
   let result;
   try {
