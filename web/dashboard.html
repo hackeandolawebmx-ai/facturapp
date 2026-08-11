@@ -194,6 +194,9 @@
   .archivo{background:var(--blanco);border:1px solid var(--regla);border-radius:var(--radio);box-shadow:var(--sombra);overflow-x:auto}
   table{width:100%;border-collapse:collapse;min-width:720px}
   thead th{text-align:left;font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;color:var(--tinta-suave);font-weight:600;padding:.7rem .9rem;border-bottom:1px solid var(--regla)}
+  .th-ordenable{cursor:pointer;user-select:none;white-space:nowrap}
+  .th-ordenable:hover{color:var(--tinta)}
+  .flecha-orden{display:inline-block;width:.9em;font-size:.85em;color:var(--verde)}
   tbody td{padding:.75rem .9rem;border-bottom:1px dotted var(--regla);font-size:.88rem;vertical-align:middle}
   tbody tr:last-child td{border-bottom:none}
   tbody tr:hover{background:var(--papel)}
@@ -494,27 +497,20 @@
 
     <div id="error-subida" class="error" hidden></div>
 
-    <section class="aviso-info" style="margin-top:1.5rem">
-      <h2>¿Cómo enviar facturas?</h2>
-      <p>Tienes 3 formas de registrar tus comprobantes fiscales:</p>
-      <ul style="margin: 0.8rem 0; padding-left: 1.5rem">
-        <li><strong>Por correo:</strong> Envía a <code>facturas@facturas.golfdynasty.mx</code> con el XML adjunto (y el PDF si lo tienes)</li>
-        <li><strong>Por WhatsApp:</strong> Manda el XML como documento — procesamos al instante</li>
-        <li><strong>Aquí:</strong> Usa el botón "Subir factura" de esta página</li>
-      </ul>
-    </section>
-
     <section class="archivo" aria-label="Facturas archivadas">
       <table>
         <thead>
           <tr>
-            <th>Fecha</th><th>Emisor</th>
-            <th>RFC receptor</th>
-            <th>Folio fiscal</th>
-            <th>Categoría</th><th>Estatus</th><th style="text-align:right">Monto</th>
+            <th class="th-ordenable" data-campo="fecha_emision">Fecha<span class="flecha-orden"></span></th>
+            <th class="th-ordenable" data-campo="emisor_nombre">Emisor<span class="flecha-orden"></span></th>
+            <th class="th-ordenable" data-campo="receptor_rfc">RFC receptor<span class="flecha-orden"></span></th>
+            <th class="th-ordenable" data-campo="uuid">Folio fiscal<span class="flecha-orden"></span></th>
+            <th class="th-ordenable" data-campo="categoria">Categoría<span class="flecha-orden"></span></th>
+            <th class="th-ordenable" data-campo="estatus">Estatus<span class="flecha-orden"></span></th>
+            <th class="th-ordenable" data-campo="total" style="text-align:right">Monto<span class="flecha-orden"></span></th>
             <!-- Oculta salvo en modo "Todos" con más de un contribuyente: ver
                  mostrarColumnaContribuyente en el script. -->
-            <th id="th-contribuyente" hidden>Contribuyente</th>
+            <th id="th-contribuyente" class="th-ordenable" data-campo="_contribuyente" hidden>Contribuyente<span class="flecha-orden"></span></th>
             <th>Archivo</th>
           </tr>
         </thead>
@@ -1443,6 +1439,67 @@
     sel.value = previa;
   }
 
+  // ---- Orden de columnas (click en encabezado) -----------------------------
+  //
+  // Sin estado persistente: cambiar de filtro o recargar reordena según el
+  // último campo elegido, pero un refresh de página vuelve al orden natural
+  // (por fecha de llegada) -- no vale la pena un localStorage más para algo
+  // que se reconstruye con un clic.
+  var ordenActual = { campo: null, asc: true };
+
+  /** Valor comparable de una factura para el campo de orden activo.
+   * "_contribuyente" no es una propiedad real de la factura -- se resuelve
+   * con la misma función que pinta esa columna (etiquetaContribuyenteDe),
+   * para que ordenar por Contribuyente use el alias visible, no el RFC
+   * crudo que el usuario no ve en pantalla. */
+  function valorOrden(inv, campo) {
+    if (campo === "_contribuyente") return etiquetaContribuyenteDe(inv).toLowerCase();
+    if (campo === "total") return Number(inv.total) || 0;
+    if (campo === "fecha_emision") return inv.fecha_emision || "";
+    return String(inv[campo] || "").toLowerCase();
+  }
+
+  function ordenarFacturas(lista) {
+    if (!ordenActual.campo) return lista;
+    var campo = ordenActual.campo;
+    var factor = ordenActual.asc ? 1 : -1;
+    // slice() antes de sort(): `lista` puede ser el resultado de filter()
+    // sobre el arreglo compartido `facturas` -- ordenar in-place mutaría
+    // ese arreglo y el "orden natural" (por llegada) se perdería para
+    // siempre, no solo mientras el usuario mira la tabla.
+    return lista.slice().sort(function (a, b) {
+      var va = valorOrden(a, campo);
+      var vb = valorOrden(b, campo);
+      if (va < vb) return -1 * factor;
+      if (va > vb) return 1 * factor;
+      return 0;
+    });
+  }
+
+  /** Pinta la flecha ▲/▼ solo en la columna activa; el resto se limpia. */
+  function actualizarFlechasOrden() {
+    document.querySelectorAll(".th-ordenable").forEach(function (th) {
+      var flecha = th.querySelector(".flecha-orden");
+      if (!flecha) return;
+      flecha.textContent = th.dataset.campo === ordenActual.campo
+        ? (ordenActual.asc ? " ▲" : " ▼") : "";
+    });
+  }
+
+  document.querySelector(".archivo thead").addEventListener("click", function (ev) {
+    var th = ev.target.closest(".th-ordenable");
+    if (!th || th.hidden) return;
+    var campo = th.dataset.campo;
+    if (ordenActual.campo === campo) {
+      ordenActual.asc = !ordenActual.asc;
+    } else {
+      ordenActual.campo = campo;
+      ordenActual.asc = true;
+    }
+    actualizarFlechasOrden();
+    aplicarFiltros();
+  });
+
   function aplicarFiltros() {
     var mes = $("filtro-mes").value;
     var cat = $("filtro-categoria").value;
@@ -1463,7 +1520,7 @@
       }
       return true;
     });
-    pintarTabla(vis);
+    pintarTabla(ordenarFacturas(vis));
   }
 
   ["filtro-mes", "filtro-categoria", "filtro-estatus"].forEach(function (id) {
