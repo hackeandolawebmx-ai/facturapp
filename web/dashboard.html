@@ -1686,7 +1686,6 @@
 
   // ---- Página de Ayuda -----
   // Enviar facturas por correo: mostrar dirección y botón copiar
-  var correoFacturas = Deno.env.get("SENDGRID_INBOUND_EMAIL") || "facturas@facturas.golfdynasty.mx";
   var elCorreo = $("correo-facturas");
   if (elCorreo) {
     elCorreo.textContent = "facturas@facturino.mx";
@@ -1705,7 +1704,7 @@
   var btnWhatsApp = $("btn-abrir-whatsapp");
   if (btnWhatsApp) {
     btnWhatsApp.addEventListener("click", function () {
-      window.open("https://wa.me/5215551234567?text=Hola,%20quiero%20registrar%20mis%20facturas", "_blank");
+      window.open("https://wa.me/15551342953?text=Hola,%20quiero%20registrar%20mis%20facturas", "_blank");
     });
   }
 
