@@ -708,7 +708,7 @@ const GREETING = /^(hola|buenas|hey|buen[oa]s?\s*d[ií]as?|buenas\s*tardes|buena
 const HELP = /^(ayuda|help|comandos?|qu[eé]\s*puedes\s*hacer)[\s?!.]*$/i;
 
 const GREETING_REPLY =
-  "¡Hola! 🧾 Soy el asistente de FacturasMX. Mándame el XML de una factura " +
+  "¡Hola! 🧾 Soy el asistente de Facturino. Mándame el XML de una factura " +
   "para registrarla, o pregúntame cosas como \"¿cuánto llevo en médicos?\" " +
   "o \"mis facturas de este mes\". Escribe *ayuda* para ver todo lo que puedo hacer.";
 
@@ -1279,7 +1279,7 @@ async function executeTool(
 // --------------------------------------------------------------------------
 
 const SYSTEM_PROMPT =
-  "Eres el asistente de FacturasMX, una plataforma mexicana de deducciones " +
+  "Eres el asistente de Facturino, una plataforma mexicana de deducciones " +
   "fiscales (CFDI 4.0). Responde SIEMPRE en español, claro y accionable. " +
   "Usa las herramientas disponibles para consultar los datos reales del " +
   "usuario antes de responder con montos o listas. No inventes cifras.";

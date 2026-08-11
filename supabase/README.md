@@ -1,4 +1,4 @@
-# FacturasMX — Migración a Supabase (Fase M7)
+# Facturino — Migración a Supabase (Fase M7)
 
 Migración de `facturapp` de Railway/FastAPI/SQLite → Supabase Edge
 Functions/TypeScript/PostgreSQL.
@@ -892,7 +892,7 @@ Ojo con el efecto secundario: `config push` empuja **todo** el
 `config.toml`, incluida la sección `[auth]`. Si aceptas ese diff, la
 config de Supabase Auth del proyecto remoto se sobrescribe con los valores
 de desarrollo local (`site_url` a `127.0.0.1`, confirmaciones por email y
-MFA desactivadas). Hoy es inocuo porque FacturasMX no usa Supabase Auth
+MFA desactivadas). Hoy es inocuo porque Facturino no usa Supabase Auth
 —tenemos JWT propio con `SECRET_KEY`— pero hay que revisarlo si algún día
 se activa.
 

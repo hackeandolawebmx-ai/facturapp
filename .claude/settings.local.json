@@ -3,7 +3,9 @@
     "allow": [
       "Bash(./.venv/Scripts/python.exe -c ' *)",
       "Bash(curl -s -o /dev/null -w '%{http_code}\\\\n' -X POST https://smocemszqzsypuachevr.supabase.co/functions/v1/job-revision-mensual -H 'x-cron-secret: incorrecto')",
-      "Bash(deno task *)"
+      "Bash(deno task *)",
+      "Bash(git add *)",
+      "Bash(git commit *)"
     ]
   }
 }

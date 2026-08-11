@@ -1,4 +1,4 @@
-# Dashboard web de FacturasMX
+# Dashboard web de Facturino
 
 `dashboard.html` es la interfaz web: un único archivo estático, sin build ni
 dependencias. Se autentica contra las Edge Functions de Supabase (login con
