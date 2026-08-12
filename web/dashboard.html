@@ -1745,9 +1745,9 @@
   // Enviar facturas por correo: mostrar dirección y botón copiar
   var elCorreo = $("correo-facturas");
   if (elCorreo) {
-    elCorreo.textContent = "facturas@facturino.mx";
+    elCorreo.textContent = "inbox@facturino.mx";
     $("btn-copiar-correo").addEventListener("click", function () {
-      navigator.clipboard.writeText("facturas@facturino.mx").then(function () {
+      navigator.clipboard.writeText("inbox@facturino.mx").then(function () {
         var textPrev = $("btn-copiar-correo").textContent;
         $("btn-copiar-correo").textContent = "✓ Copiado";
         setTimeout(function () {
