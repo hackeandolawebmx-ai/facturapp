@@ -118,10 +118,17 @@
      debajo de 900px no se toca nada -- sigue apilado como antes. */
   @media (min-width:900px){
     #pagina-contribuyentes .grid-contribuyentes{
-      display:grid;grid-template-columns:1fr 1fr;gap:1.5rem;align-items:start;
+      display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:1.5rem;align-items:start;
       max-width:1100px;margin:0 auto;
     }
-    #pagina-contribuyentes .grid-contribuyentes > .acceso-ancho{max-width:none;margin:0}
+    /* minmax(0,1fr), no 1fr a secas: el ancho mínimo implícito de una celda
+       de grid es "auto" (= el contenido sin encoger), así que un correo
+       largo sin espacios en la tabla empujaba la columna más allá del
+       viewport y sacaba scroll horizontal en TODA la página -- no solo
+       dentro de la tarjeta. minmax(0,1fr) le permite encogerse hasta el
+       ancho de columna real; .tabla-rfcs-wrap ya tiene su propio
+       overflow-x:auto para cuando el contenido no cabe ni así. */
+    #pagina-contribuyentes .grid-contribuyentes > .acceso-ancho{max-width:none;margin:0;min-width:0}
     #pagina-ayuda .acceso-ancho{max-width:900px}
     .tarjeta-correos{margin-top:0}
   }
