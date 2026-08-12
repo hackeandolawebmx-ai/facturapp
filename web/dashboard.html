@@ -23,6 +23,8 @@
     --chip-colegiaturas-fondo:#EFE9F5; --chip-colegiaturas-texto:#4C3570;
     --chip-seguros-fondo:#E9F2F2; --chip-seguros-texto:#20565A;
     --chip-hipoteca-fondo:#F1EEE4; --chip-hipoteca-texto:#5C5230;
+    --chip-servicios-fondo:#E9F1E7; --chip-servicios-texto:#33533A;
+    --chip-arrendamiento-fondo:#F5EDE6; --chip-arrendamiento-texto:#6B4423;
     --blanco:#FFFFFF;
     --sombra:0 1px 3px rgba(23,34,56,.08);
     --radio-xs:3px; --radio-sm:4px; --radio-corte:6px; --radio-md:8px;
@@ -105,6 +107,24 @@
 
   /* ---------- Contribuyentes ---------- */
   .acceso-ancho{max-width:560px}
+  .tarjeta-correos{margin-top:1.5rem}
+
+  /* Contribuyentes y Ayuda: .acceso-ancho (560px, centrado) tiene sentido
+     para un formulario angosto, pero en laptop+ deja la mitad de la
+     pantalla vacía y apila contenido que cabría lado a lado. A partir de
+     900px las dos tarjetas de Contribuyentes (RFCs / correos autorizados)
+     pasan a dos columnas, y Ayuda recupera el ancho necesario para que sus
+     3 tarjetas (ya en grid auto-fit) se acomoden en una sola fila. Por
+     debajo de 900px no se toca nada -- sigue apilado como antes. */
+  @media (min-width:900px){
+    #pagina-contribuyentes .grid-contribuyentes{
+      display:grid;grid-template-columns:1fr 1fr;gap:1.5rem;align-items:start;
+      max-width:1100px;margin:0 auto;
+    }
+    #pagina-contribuyentes .grid-contribuyentes > .acceso-ancho{max-width:none;margin:0}
+    #pagina-ayuda .acceso-ancho{max-width:900px}
+    .tarjeta-correos{margin-top:0}
+  }
   .subtitulo{font-family:'Poppins',sans-serif;font-weight:700;font-size:1rem;margin:1.6rem 0 .8rem;
              padding-top:1.2rem;border-top:1px solid var(--regla)}
   /* overflow-x:auto es la red de seguridad: si a pesar de los anchos fijos
@@ -170,6 +190,11 @@
   .linea-monto{font-family:'IBM Plex Mono',monospace;font-size:.95rem;text-align:right;min-width:7.5rem}
   .linea.total{border-top:2px solid var(--tinta);margin-top:.3rem;padding-top:.75rem;font-weight:600}
   .linea.total .linea-monto{font-weight:500;font-size:1.05rem}
+  .linea.linea-clic{cursor:pointer;border-radius:var(--radio-sm);margin:0 -.6rem;padding:.55rem .6rem}
+  .linea.linea-clic:hover{background:var(--papel)}
+  .linea.linea-clic:hover .linea-cat{text-decoration:underline}
+  .cedula-nota.nota-clic{cursor:pointer}
+  .cedula-nota.nota-clic:hover{text-decoration:underline}
   .vacio{padding:.6rem 0;font-size:.88rem;color:var(--tinta-suave)}
 
   /* ---------- Filtros ---------- */
@@ -210,6 +235,8 @@
   .chip.colegiaturas{background:var(--chip-colegiaturas-fondo);color:var(--chip-colegiaturas-texto)}
   .chip.seguros{background:var(--chip-seguros-fondo);color:var(--chip-seguros-texto)}
   .chip.hipoteca{background:var(--chip-hipoteca-fondo);color:var(--chip-hipoteca-texto)}
+  .chip.servicios{background:var(--chip-servicios-fondo);color:var(--chip-servicios-texto)}
+  .chip.arrendamiento{background:var(--chip-arrendamiento-fondo);color:var(--chip-arrendamiento-texto)}
 
   /* select-categoria hereda .chip (mismos colores por categoría) pero es un
      <select> real -- se le quita el estilo nativo del navegador para que no
@@ -523,6 +550,7 @@
 
   <!-- ---- Página: Contribuyentes ---- -->
   <main class="contenido" id="pagina-contribuyentes" hidden>
+    <div class="grid-contribuyentes">
     <section class="acceso acceso-ancho pagina-tarjeta">
       <h1>Contribuyentes</h1>
       <p class="sub">
@@ -567,7 +595,7 @@
       </form>
     </section>
 
-    <section class="acceso acceso-ancho pagina-tarjeta" style="margin-top:1.5rem">
+    <section class="acceso acceso-ancho pagina-tarjeta tarjeta-correos">
       <h1>Correos autorizados</h1>
       <p class="sub">
         Las facturas por correo se atribuyen a tu cuenta según quién las manda.
@@ -598,6 +626,7 @@
         <button type="submit" class="btn-principal" id="btn-agregar-correo">Agregar</button>
       </form>
     </section>
+    </div>
   </main>
 
   <!-- ---- Página: Ayuda ---- -->
@@ -665,15 +694,19 @@
   var CLAVE_SESION = "facturapp_token";
 
   var CHIP = { "Médicos": "medicos", "Colegiaturas": "colegiaturas",
-               "Seguros GMM": "seguros", "Hipoteca": "hipoteca" };
-  // Opciones del selector de categoría (Fase M16). Las mismas 4 que conoce
-  // el clasificador automático, más "Sin clasificar" para poder revertir a
-  // ese estado. No es una lista arbitraria: reclasificar a cualquier otro
-  // texto libre sería posible por API pero no tendría chip ni cabría en
-  // ninguna regla de tope de deducción -- la UI limita a lo que el resto
-  // del sistema sabe interpretar.
+               "Seguros GMM": "seguros", "Hipoteca": "hipoteca",
+               "Servicios": "servicios", "Arrendamiento": "arrendamiento" };
+  // Opciones del selector de categoría (Fase M16). Las primeras 4 son las
+  // que conoce el clasificador automático (con reglas reales de tope y
+  // requisitos SAT de deducción personal, Art. 151 LISR) -- "Servicios" y
+  // "Arrendamiento" son solo organizativas: el usuario las asigna a mano
+  // para agrupar gastos que NO son deducción personal (son otro régimen
+  // fiscal), pero el sistema no les aplica ninguna regla de deducibilidad,
+  // igual que hace con las facturas de personas morales (archivadas). Nunca
+  // las asigna el clasificador automático -- ver classifier.ts.
   var CATEGORIAS_RECLASIFICAR = [
     "Sin clasificar", "Médicos", "Colegiaturas", "Seguros GMM", "Hipoteca",
+    "Servicios", "Arrendamiento",
   ];
   var ESTATUS = { "valida": ["valida", "Válida"], "advertencia": ["advertencia", "Advertencia"],
                   "por_revisar": ["revisar", "Por revisar"], "rechazada": ["revisar", "Rechazada"],
@@ -1405,12 +1438,14 @@
     } else {
       nombres.forEach(function (cat) {
         var c = cats[cat];
-        lineas += '<div class="linea"><span class="linea-cat">' + escapeHtml(cat) + '</span>' +
+        lineas += '<div class="linea linea-clic" data-categoria="' + escapeHtml(cat) +
+                '" role="button" tabindex="0"><span class="linea-cat">' + escapeHtml(cat) + '</span>' +
                 '<span class="linea-num">' + c.facturas + ' factura' +
                 (c.facturas === 1 ? '' : 's') + '</span>' +
                 '<span class="linea-monto">' + money(c.total) + '</span></div>';
       });
-      lineas += '<div class="linea total"><span class="linea-cat">Total acumulado</span>' +
+      lineas += '<div class="linea total linea-clic" data-categoria="" role="button" tabindex="0">' +
+              '<span class="linea-cat">Total acumulado</span>' +
               '<span class="linea-num"></span><span class="linea-monto">' +
               money(s.total_general) + '</span></div>';
     }
@@ -1419,11 +1454,37 @@
     return '<section class="cedula" aria-label="Cédula de deducciones">' +
       '<div class="cedula-encabezado">' +
         '<h1 class="cedula-titulo">Cédula de deducciones · ' + anio + '</h1>' +
-        '<p class="cedula-nota">' + nota + '</p>' +
+        '<p class="cedula-nota' + (n ? ' nota-clic' : '') + '"' +
+          (n ? ' data-ir-facturas="1" role="button" tabindex="0"' : '') + '>' + nota + '</p>' +
       '</div>' +
       '<div class="cedula-lineas">' + lineas + '</div>' +
     '</section>';
   }
+
+  /** Clic en una línea de la cédula (o en el contador de facturas) lleva a
+   * Facturas con el filtro de categoría ya aplicado -- así el resumen deja
+   * de ser solo lectura y se vuelve un atajo real al detalle. Delegado en el
+   * contenedor porque las tarjetas se repintan enteras en cada carga. */
+  $("contenedor-resumenes").addEventListener("click", function (ev) {
+    var linea = ev.target.closest(".linea-clic");
+    var nota = ev.target.closest("[data-ir-facturas]");
+    if (linea) {
+      $("filtro-categoria").value = linea.dataset.categoria || "";
+      mostrarPagina("facturas");
+      aplicarFiltros();
+    } else if (nota) {
+      $("filtro-categoria").value = "";
+      mostrarPagina("facturas");
+      aplicarFiltros();
+    }
+  });
+  $("contenedor-resumenes").addEventListener("keydown", function (ev) {
+    if (ev.key !== "Enter" && ev.key !== " ") return;
+    if (ev.target.closest(".linea-clic") || ev.target.closest("[data-ir-facturas]")) {
+      ev.preventDefault();
+      ev.target.click();
+    }
+  });
 
   function poblarCategorias() {
     var sel = $("filtro-categoria");
