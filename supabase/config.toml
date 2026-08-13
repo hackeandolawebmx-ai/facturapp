@@ -87,6 +87,15 @@ verify_jwt = false
 [functions.job-revision-mensual]
 verify_jwt = false
 
+# Fase M23 -- back-office. Mismo motivo que el resto: el JWT es propio (HS256,
+# SECRET_KEY), no de Supabase Auth. El control de acceso real es getCurrentAdmin,
+# que exige rol 'admin' dentro de la función.
+[functions.api-admin-users]
+verify_jwt = false
+
+[functions.api-admin-metrics]
+verify_jwt = false
+
 # api-public-* no usan NINGÚN JWT -- se autentican por `web_token` en query
 # param (ver _shared/users.ts: getUserByWebToken). Mismo motivo que los
 # webhooks: sin esto, el gateway de Supabase exigiría un JWT de Supabase

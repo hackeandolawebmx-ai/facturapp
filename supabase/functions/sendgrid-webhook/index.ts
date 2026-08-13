@@ -110,6 +110,23 @@ async function handlePost(req: Request): Promise<Response> {
     });
   }
 
+  // Cuenta suspendida (Fase M23): se responde 202, no un error. SendGrid
+  // reintenta ante un 5xx, y reintentar no va a cambiar nada aquí -- el
+  // correo se recibió y se decidió no procesarlo, que es un desenlace
+  // legítimo. Al remitente no se le contesta por correo (este canal no envía
+  // respuestas); se entera al intentar entrar al dashboard.
+  if (user.suspendida) {
+    console.warn(`Correo de cuenta suspendida (user_id=${user.id}), no se ingiere`);
+    return new Response(JSON.stringify({
+      user_id: user.id,
+      estatus: "suspendida",
+      mensaje: "La cuenta está suspendida; la factura no se procesó.",
+    }), {
+      status: 202,
+      headers: jsonHeaders,
+    });
+  }
+
   const entries = Object.entries(correo.adjuntos) as Array<["xml" | "pdf", Uint8Array]>;
 
   if (entries.length === 0) {
@@ -136,7 +153,7 @@ async function handlePost(req: Request): Promise<Response> {
   for (const [kind, contenido] of aProcesar) {
     const filename = `attachment.${kind}`;
     try {
-      const result = await ingestInvoice(supabase, user, contenido, filename);
+      const result = await ingestInvoice(supabase, user, contenido, filename, "correo");
 
       // Si el mismo correo trae el PDF, se guarda junto a la factura. Este es
       // el caso normal: los PAC mandan XML y PDF en el mismo envío. Por

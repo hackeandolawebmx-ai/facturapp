@@ -12,6 +12,20 @@ import { sincronizarRfcPrincipal } from "./rfcs.ts";
 export interface AppUser {
   id: number;
   rfc: string;
+  /** Fase M23 — la cuenta existe pero está suspendida. Los canales de ingesta
+   * (WhatsApp, correo) lo consultan para responder al usuario en vez de
+   * guardarle la factura. No se marca en cuentas recién creadas: nacen
+   * activas. */
+  suspendida?: boolean;
+}
+
+/** Columnas mínimas de identidad + estado que necesitan los canales de
+ * ingesta para decidir si procesan la factura o rechazan. */
+const INGESTA_COLS = "id, rfc, suspendida_en";
+
+/** Normaliza la fila cruda al `AppUser` que consumen los canales de ingesta. */
+function aAppUser(fila: { id: number; rfc: string; suspendida_en?: string | null }): AppUser {
+  return { id: fila.id, rfc: fila.rfc, suspendida: Boolean(fila.suspendida_en) };
 }
 
 function placeholderEmailForPhone(phone: string): string {
@@ -31,7 +45,7 @@ export async function getOrCreateUserByPhone(
   const { data: existing, error: selectError } = await supabase
     .schema("facturapp")
     .from("users")
-    .select("id, rfc")
+    .select(INGESTA_COLS)
     .eq("whatsapp_phone", trimmedPhone)
     .maybeSingle();
 
@@ -39,7 +53,7 @@ export async function getOrCreateUserByPhone(
     throw new Error(`Error buscando usuario por teléfono: ${selectError.message}`);
   }
   if (existing) {
-    return existing as AppUser;
+    return aAppUser(existing as { id: number; rfc: string; suspendida_en?: string | null });
   }
 
   const { data: created, error: insertError } = await supabase
@@ -91,7 +105,7 @@ export async function getOrCreateUserByEmail(
   const { data: existing, error: selectError } = await supabase
     .schema("facturapp")
     .from("users")
-    .select("id, rfc")
+    .select(INGESTA_COLS)
     .eq("email", normalizedEmail)
     .maybeSingle();
 
@@ -99,7 +113,7 @@ export async function getOrCreateUserByEmail(
     throw new Error(`Error buscando usuario por email: ${selectError.message}`);
   }
   if (existing) {
-    return existing as AppUser;
+    return aAppUser(existing as { id: number; rfc: string; suspendida_en?: string | null });
   }
 
   const { data: autorizado, error: errorAutorizado } = await supabase
@@ -115,13 +129,13 @@ export async function getOrCreateUserByEmail(
     const { data: cuenta, error: errorCuenta } = await supabase
       .schema("facturapp")
       .from("users")
-      .select("id, rfc")
+      .select(INGESTA_COLS)
       .eq("id", autorizado.user_id)
       .single();
     if (errorCuenta) {
       throw new Error(`Error resolviendo cuenta del correo autorizado: ${errorCuenta.message}`);
     }
-    return cuenta as AppUser;
+    return aAppUser(cuenta as { id: number; rfc: string; suspendida_en?: string | null });
   }
 
   const { data: created, error: insertError } = await supabase
@@ -151,9 +165,13 @@ export interface UserProfile {
   plan: string;
   web_token: string | null;
   whatsapp_phone: string | null;
+  /** Fase M23 — 'usuario' | 'admin'. El dashboard lo usa para decidir si
+   * muestra el enlace al panel de administración; la autorización real la
+   * aplica `getCurrentAdmin` en el servidor. */
+  rol: string;
 }
 
-const PROFILE_COLS = "id, email, nombre, rfc, plan, web_token, whatsapp_phone";
+const PROFILE_COLS = "id, email, nombre, rfc, plan, web_token, whatsapp_phone, rol";
 
 /** Port 1:1 de `/api/user/profile` (User.to_public() en models.py). */
 export async function getUserProfile(
@@ -349,11 +367,17 @@ export async function getUserByWebToken(
 ): Promise<UserProfile | null> {
   const { data, error } = await supabase
     .schema("facturapp").from("users")
-    .select(PROFILE_COLS)
+    .select(`${PROFILE_COLS}, suspendida_en`)
     .eq("web_token", token)
     .maybeSingle();
   if (error) throw new Error(`Error consultando usuario por token: ${error.message}`);
-  return (data as UserProfile) ?? null;
+  if (!data) return null;
+  // El dashboard público (`/api/public/*`) es otra puerta de entrada que NO
+  // pasa por getCurrentUser, así que la suspensión se aplica también aquí --
+  // si no, bastaría con conservar el enlace público para seguir viendo los
+  // datos de una cuenta suspendida.
+  if ((data as { suspendida_en?: string | null }).suspendida_en) return null;
+  return data as UserProfile;
 }
 
 // --------------------------------------------------------------------------

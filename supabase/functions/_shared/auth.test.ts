@@ -11,8 +11,8 @@
 import { SignJWT } from "jsr:@panva/jose@6";
 import { assert, assertEquals, assertNotEquals } from "jsr:@std/assert@1";
 import {
-  createAccessToken, createRefreshToken, generateWebToken, getCurrentUser,
-  verifyAccessToken, verifyRefreshToken,
+  createAccessToken, createRefreshToken, generateWebToken, getCurrentAdmin,
+  getCurrentUser, verifyAccessToken, verifyRefreshToken,
 } from "./auth.ts";
 import { FakeSupabaseClient } from "./fake_supabase_client.ts";
 
@@ -102,6 +102,76 @@ Deno.test("getCurrentUser: un web_token NO sirve como access token (no es JWT)",
   // deno-lint-ignore no-explicit-any
   const result = await getCurrentUser("Bearer RT9EniZWBD7eu3OemqdxLbEb85VvH-Ee", supabase as any, SECRET);
   assertEquals(result, null);
+});
+
+// ---- Cuenta suspendida y rol de admin (Fase M23) ----------------------------
+
+Deno.test("getCurrentUser: cuenta suspendida → null aunque el token sea válido", async () => {
+  // Este es el corte que protege a los ~12 endpoints autenticados de una sola
+  // vez: si esto dejara de funcionar, una cuenta suspendida recuperaría acceso
+  // a TODOS ellos en bloque, no a uno.
+  const supabase = new FakeSupabaseClient();
+  supabase.tables.users.push({
+    id: 42, rfc: "DAXX860715XX0", rol: "usuario",
+    suspendida_en: "2026-08-13T00:00:00Z",
+  });
+  const token = await signToken({ sub: "42", rfc: "DAXX860715XX0", type: "access" });
+
+  // deno-lint-ignore no-explicit-any
+  assertEquals(await getCurrentUser(`Bearer ${token}`, supabase as any, SECRET), null);
+});
+
+Deno.test("getCurrentUser: suspendida_en nulo NO bloquea (cuenta activa)", async () => {
+  const supabase = new FakeSupabaseClient();
+  supabase.tables.users.push({
+    id: 42, rfc: "DAXX860715XX0", rol: "usuario", suspendida_en: null,
+  });
+  const token = await signToken({ sub: "42", rfc: "DAXX860715XX0", type: "access" });
+
+  // deno-lint-ignore no-explicit-any
+  const user = await getCurrentUser(`Bearer ${token}`, supabase as any, SECRET);
+  assertEquals(user, { id: 42, rfc: "DAXX860715XX0" });
+});
+
+Deno.test("getCurrentAdmin: rol 'admin' → autenticado", async () => {
+  const supabase = new FakeSupabaseClient();
+  supabase.tables.users.push({ id: 1, rfc: "DAXX860715XX0", rol: "admin", suspendida_en: null });
+  const token = await signToken({ sub: "1", rfc: "DAXX860715XX0", type: "access" });
+
+  // deno-lint-ignore no-explicit-any
+  const admin = await getCurrentAdmin(`Bearer ${token}`, supabase as any, SECRET);
+  assertEquals(admin, { id: 1, rfc: "DAXX860715XX0" });
+});
+
+Deno.test("getCurrentAdmin: rol 'usuario' → null (no basta con estar autenticado)", async () => {
+  const supabase = new FakeSupabaseClient();
+  supabase.tables.users.push({ id: 2, rfc: "DAXX860715XX0", rol: "usuario", suspendida_en: null });
+  const token = await signToken({ sub: "2", rfc: "DAXX860715XX0", type: "access" });
+
+  // deno-lint-ignore no-explicit-any
+  assertEquals(await getCurrentAdmin(`Bearer ${token}`, supabase as any, SECRET), null);
+});
+
+Deno.test("getCurrentAdmin: rol ausente → null (falla cerrado)", async () => {
+  // Filas anteriores a la migración 0013 no tienen `rol`. La ausencia del dato
+  // NUNCA debe interpretarse como permiso.
+  const supabase = new FakeSupabaseClient();
+  supabase.tables.users.push({ id: 3, rfc: "DAXX860715XX0" });
+  const token = await signToken({ sub: "3", rfc: "DAXX860715XX0", type: "access" });
+
+  // deno-lint-ignore no-explicit-any
+  assertEquals(await getCurrentAdmin(`Bearer ${token}`, supabase as any, SECRET), null);
+});
+
+Deno.test("getCurrentAdmin: admin suspendido → null", async () => {
+  const supabase = new FakeSupabaseClient();
+  supabase.tables.users.push({
+    id: 4, rfc: "DAXX860715XX0", rol: "admin", suspendida_en: "2026-08-13T00:00:00Z",
+  });
+  const token = await signToken({ sub: "4", rfc: "DAXX860715XX0", type: "access" });
+
+  // deno-lint-ignore no-explicit-any
+  assertEquals(await getCurrentAdmin(`Bearer ${token}`, supabase as any, SECRET), null);
 });
 
 // ---- createAccessToken / createRefreshToken / verifyRefreshToken (Fase M7) --

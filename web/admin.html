@@ -1,0 +1,570 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Facturino — Administración</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700;800&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  /* Los tokens se repiten aquí en vez de importarse: son dos páginas
+     estáticas sin build step, y una hoja compartida sería una petición más
+     que bloquea el render para ahorrar 20 líneas. Si algún día hay build,
+     esto es lo primero que se extrae. */
+  :root{
+    --papel:#F7F8FA; --tinta:#172238; --tinta-suave:#5B6675; --regla:#E3E7EC;
+    --verde:#2AB176; --verde-osc:#1E8A5B; --verde-fondo:#E8F7F0;
+    --ambar:#F8A312; --ambar-fondo:#FCEEDA; --ambar-texto:#8A5A0F;
+    --error:#C0392B; --error-fondo:#FBEAEA;
+    --morado:#4C3570; --morado-fondo:#F3F0F7; --morado-borde:#DCD3E8;
+    --blanco:#FFFFFF;
+    --sombra:0 1px 3px rgba(23,34,56,.08);
+    --radio-xs:3px; --radio-sm:4px; --radio-corte:6px; --radio-md:8px;
+    --radio-lg:12px; --radio-pill:99px;
+    --radio:var(--radio-lg);
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html{font-size:16px}
+  body{background:var(--papel);color:var(--tinta);font-family:'Inter',system-ui,sans-serif;line-height:1.5}
+  a{color:inherit}
+  button{font:inherit;cursor:pointer}
+  :focus-visible{outline:2px solid var(--verde);outline-offset:2px}
+  @media (prefers-reduced-motion: reduce){*{transition:none!important;animation:none!important}}
+  [hidden]{display:none!important}
+
+  .topbar{display:flex;align-items:center;gap:1rem;padding:.9rem 1.5rem;border-bottom:1px solid var(--regla);background:var(--blanco);flex-wrap:wrap}
+  .marca{display:flex;align-items:center;gap:.45rem;font-family:'Poppins',sans-serif;font-weight:700;font-size:1.15rem;letter-spacing:-.01em}
+  .marca-isotipo{flex:none}
+  /* Distintivo de que esto NO es la vista del usuario: el panel escribe sobre
+     cuentas ajenas y conviene que no se confunda con el dashboard normal. */
+  .sello-admin{font-family:'IBM Plex Mono',monospace;font-size:.7rem;font-weight:500;
+               background:var(--morado-fondo);color:var(--morado);border:1px solid var(--morado-borde);
+               border-radius:var(--radio-pill);padding:.1rem .55rem;letter-spacing:.04em}
+  .identidad{margin-left:auto;display:flex;align-items:center;gap:.7rem;font-size:.8rem;color:var(--tinta-suave)}
+  .btn-plano{background:none;border:1px solid var(--regla);border-radius:var(--radio-sm);padding:.25rem .6rem;font-size:.75rem;color:var(--tinta-suave)}
+  .btn-plano:hover{border-color:var(--tinta);color:var(--tinta)}
+  .btn-plano:disabled{opacity:.5;cursor:default}
+
+  .contenido{padding:2rem 2rem 4rem}
+  h1{font-family:'Poppins',sans-serif;font-weight:800;font-size:1.4rem;margin-bottom:.3rem}
+  h2{font-family:'Poppins',sans-serif;font-weight:700;font-size:1rem;margin-bottom:.8rem}
+  .sub{font-size:.85rem;color:var(--tinta-suave);margin-bottom:1.5rem}
+
+  .error{background:var(--error-fondo);color:var(--error);border:1px solid var(--error);
+         border-radius:var(--radio-sm);padding:.7rem .9rem;font-size:.85rem;margin-bottom:1rem}
+  .vacio{color:var(--tinta-suave);font-size:.88rem;padding:1rem 0}
+
+  /* ---------- Métricas ---------- */
+  .rejilla-metricas{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:1rem;margin-bottom:2rem}
+  .metrica{background:var(--blanco);border:1px solid var(--regla);border-radius:var(--radio);
+           box-shadow:var(--sombra);padding:1rem 1.1rem}
+  .metrica-valor{font-family:'Poppins',sans-serif;font-weight:700;font-size:1.6rem;line-height:1.1}
+  .metrica-etiqueta{font-size:.75rem;color:var(--tinta-suave);margin-top:.25rem}
+  .metrica-nota{font-size:.7rem;color:var(--tinta-suave);margin-top:.4rem;font-family:'IBM Plex Mono',monospace}
+  .metrica.alerta .metrica-valor{color:var(--ambar-texto)}
+
+  .desgloses{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:1rem;margin-bottom:2rem}
+  .desglose{background:var(--blanco);border:1px solid var(--regla);border-radius:var(--radio);
+            box-shadow:var(--sombra);padding:1rem 1.1rem}
+  .desglose-linea{display:flex;justify-content:space-between;gap:1rem;padding:.35rem 0;
+                  border-top:1px dotted var(--regla);font-size:.85rem}
+  .desglose-linea:first-of-type{border-top:none}
+  .desglose-linea span:last-child{font-family:'IBM Plex Mono',monospace}
+
+  /* ---------- Tabla de cuentas ---------- */
+  .filtros{display:flex;gap:.6rem;flex-wrap:wrap;align-items:center;margin-bottom:1rem}
+  .filtro{border:1px solid var(--regla);background:var(--blanco);border-radius:var(--radio-sm);
+          padding:.4rem .6rem;font-size:.85rem}
+  .buscador input{border:1px solid var(--regla);background:var(--blanco);border-radius:var(--radio-sm);
+                  padding:.4rem .7rem;font-size:.85rem;min-width:16rem;font-family:inherit}
+
+  .archivo{background:var(--blanco);border:1px solid var(--regla);border-radius:var(--radio);
+           box-shadow:var(--sombra);overflow-x:auto}
+  table{width:100%;border-collapse:collapse;min-width:860px}
+  thead th{text-align:left;font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;
+           color:var(--tinta-suave);font-weight:600;padding:.7rem .9rem;border-bottom:1px solid var(--regla)}
+  tbody td{padding:.7rem .9rem;border-bottom:1px dotted var(--regla);font-size:.86rem;vertical-align:middle}
+  tbody tr:last-child td{border-bottom:none}
+  tbody tr.fila-cuenta{cursor:pointer}
+  tbody tr.fila-cuenta:hover{background:var(--papel)}
+  .mono{font-family:'IBM Plex Mono',monospace;font-size:.82rem}
+  .num{text-align:right;font-family:'IBM Plex Mono',monospace;font-size:.82rem}
+  .apagado{color:var(--tinta-suave)}
+
+  .marca-estado{display:inline-block;font-size:.72rem;font-weight:600;padding:.15rem .5rem;
+                border-radius:var(--radio-pill);white-space:nowrap}
+  .marca-estado.activa{background:var(--verde-fondo);color:var(--verde-osc)}
+  .marca-estado.suspendida{background:var(--error-fondo);color:var(--error)}
+  .marca-estado.admin{background:var(--morado-fondo);color:var(--morado)}
+  .marca-estado.pendiente{background:var(--ambar-fondo);color:var(--ambar-texto)}
+
+  .pie{font-size:.8rem;color:var(--tinta-suave);margin-top:1rem}
+
+  /* ---------- Panel de detalle ---------- */
+  .fondo-detalle{position:fixed;inset:0;background:rgba(23,28,38,.5);z-index:100;display:flex;justify-content:flex-end}
+  .panel-detalle{background:var(--blanco);width:min(680px,100%);height:100%;overflow-y:auto;
+                 box-shadow:-2px 0 12px rgba(23,34,56,.12)}
+  .panel-barra{position:sticky;top:0;background:var(--blanco);display:flex;align-items:center;
+               justify-content:space-between;gap:1rem;padding:1rem 1.3rem;border-bottom:1px solid var(--regla)}
+  .panel-cuerpo{padding:1.3rem}
+  .bloque{margin-bottom:1.8rem}
+  .datos{display:grid;grid-template-columns:auto 1fr;gap:.4rem 1rem;font-size:.85rem}
+  .datos dt{color:var(--tinta-suave)}
+  .datos dd{font-family:'IBM Plex Mono',monospace;font-size:.82rem;word-break:break-all}
+  .lista-simple{font-size:.85rem}
+  .lista-simple li{padding:.35rem 0;border-top:1px dotted var(--regla);list-style:none}
+  .lista-simple li:first-child{border-top:none}
+
+  .btn-accion{border:1px solid var(--regla);background:var(--blanco);border-radius:var(--radio-sm);
+              padding:.4rem .8rem;font-size:.8rem;font-weight:500;color:var(--tinta)}
+  .btn-accion:hover:not(:disabled){border-color:var(--tinta)}
+  .btn-accion:disabled{opacity:.5;cursor:default}
+  .btn-peligro{border-color:var(--error);color:var(--error)}
+  .btn-peligro:hover:not(:disabled){background:var(--error-fondo);border-color:var(--error)}
+  .btn-restaurar{border-color:var(--verde-osc);color:var(--verde-osc)}
+  .btn-restaurar:hover:not(:disabled){background:var(--verde-fondo)}
+
+  .aviso-suspendida{background:var(--error-fondo);border:1px solid var(--error);border-radius:var(--radio-sm);
+                    padding:.7rem .9rem;font-size:.85rem;color:var(--error);margin-bottom:1.2rem}
+
+  /* ---------- Sin acceso ---------- */
+  .sin-acceso{max-width:420px;margin:5rem auto;background:var(--blanco);border:1px solid var(--regla);
+              border-radius:var(--radio);box-shadow:var(--sombra);padding:2rem;text-align:center}
+  .sin-acceso p{font-size:.88rem;color:var(--tinta-suave);margin:.6rem 0 1.2rem}
+
+  @media (max-width:640px){
+    .contenido{padding:1.2rem 1rem 3rem}
+    .topbar{padding:.8rem 1rem}
+    .panel-cuerpo{padding:1rem}
+  }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="marca">
+    <svg class="marca-isotipo" width="22" height="22" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+      <path d="M4 6a4 4 0 0 1 4-4h16a4 4 0 0 1 4 4v14a4 4 0 0 1-4 4H12l-6 6V6Z" fill="#2AB176"/>
+      <rect x="10" y="7" width="12" height="15" rx="1.5" fill="#fff"/>
+      <line x1="12.5" y1="11" x2="19.5" y2="11" stroke="#172238" stroke-width="1.4" stroke-linecap="round"/>
+      <line x1="12.5" y1="14.5" x2="19.5" y2="14.5" stroke="#172238" stroke-width="1.4" stroke-linecap="round"/>
+      <line x1="12.5" y1="18" x2="16.5" y2="18" stroke="#172238" stroke-width="1.4" stroke-linecap="round"/>
+      <path d="M24.5 2.5 25.6 5l2.5 1.1-2.5 1.1-1.1 2.5-1.1-2.5L21 6.1l2.4-1.1 1.1-2.5Z" fill="#F8A312"/>
+    </svg>
+    Facturino
+  </div>
+  <span class="sello-admin">ADMIN</span>
+  <div class="identidad">
+    <button type="button" class="btn-plano" id="btn-actualizar">Actualizar</button>
+    <a class="btn-plano" href="/dashboard.html">Volver al dashboard</a>
+  </div>
+</header>
+
+<!-- Cortesía de interfaz: el control real lo aplica getCurrentAdmin en el
+     servidor, que responde 403 a cualquiera que no tenga rol admin. -->
+<div class="sin-acceso" id="sin-acceso" hidden>
+  <h1>Sin acceso</h1>
+  <p id="texto-sin-acceso">Esta sección es solo para administradores.</p>
+  <a class="btn-accion" href="/dashboard.html">Ir al dashboard</a>
+</div>
+
+<main class="contenido" id="panel" hidden>
+  <h1>Administración</h1>
+  <p class="sub">Cuentas registradas, actividad del sistema y soporte.</p>
+
+  <div id="error-panel" class="error" hidden></div>
+
+  <div class="rejilla-metricas" id="rejilla-metricas"></div>
+  <div class="desgloses" id="desgloses"></div>
+
+  <h2>Cuentas</h2>
+  <div class="filtros">
+    <div class="buscador">
+      <input type="search" id="buscador" placeholder="Buscar por correo, nombre o RFC"
+             aria-label="Buscar cuentas">
+    </div>
+    <select class="filtro" id="filtro-estado" aria-label="Filtrar por estado">
+      <option value="">Todas</option>
+      <option value="activas">Activas</option>
+      <option value="suspendidas">Suspendidas</option>
+    </select>
+  </div>
+
+  <section class="archivo">
+    <table>
+      <thead>
+        <tr>
+          <th>Correo</th>
+          <th>Nombre</th>
+          <th>RFC</th>
+          <th>Estado</th>
+          <th>Alta</th>
+          <th style="text-align:right">Facturas</th>
+          <th>Última factura</th>
+        </tr>
+      </thead>
+      <tbody id="tbody-cuentas"></tbody>
+    </table>
+  </section>
+  <p class="pie" id="pie-conteo"></p>
+</main>
+
+<div class="fondo-detalle" id="fondo-detalle" hidden>
+  <div class="panel-detalle" role="dialog" aria-modal="true" aria-label="Detalle de la cuenta">
+    <div class="panel-barra">
+      <strong id="detalle-titulo" style="font-size:.95rem"></strong>
+      <button type="button" class="btn-plano" id="btn-cerrar-detalle">Cerrar ✕</button>
+    </div>
+    <div class="panel-cuerpo" id="detalle-cuerpo"></div>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var API = "https://smocemszqzsypuachevr.supabase.co/functions/v1";
+  // Misma clave que dashboard.html: el panel no tiene login propio, reutiliza
+  // la sesión ya abierta. Si no hay ninguna, no hay nada que mostrar.
+  var CLAVE_SESION = "facturapp_token";
+  var token = sessionStorage.getItem(CLAVE_SESION);
+
+  var MESES = ["ENE","FEB","MAR","ABR","MAY","JUN","JUL","AGO","SEP","OCT","NOV","DIC"];
+
+  function $(id) { return document.getElementById(id); }
+
+  function escapeHtml(s) {
+    return String(s == null ? "" : s)
+      .replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;").replaceAll("'", "&#39;");
+  }
+
+  function money(n) {
+    return "$" + (Number(n) || 0).toLocaleString("es-MX",
+      { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+
+  /** Fecha corta para tabla: 13·AGO·26. Acepta ISO completo o solo fecha. */
+  function fechaCorta(iso) {
+    if (!iso) return "—";
+    var p = String(iso).slice(0, 10).split("-");
+    if (p.length < 3) return String(iso);
+    return p[2] + "·" + MESES[parseInt(p[1], 10) - 1] + "·" + p[0].slice(2);
+  }
+
+  function mostrarError(texto) {
+    var el = $("error-panel");
+    el.textContent = texto || "";
+    el.hidden = !texto;
+  }
+
+  async function pedir(ruta, opciones) {
+    opciones = opciones || {};
+    opciones.headers = Object.assign(
+      { "Authorization": "Bearer " + token }, opciones.headers || {});
+    return await fetch(API + ruta, opciones);
+  }
+
+  /** Muestra la pantalla de "sin acceso" y deja de intentar cargar nada. */
+  function sinAcceso(texto) {
+    if (texto) $("texto-sin-acceso").textContent = texto;
+    $("panel").hidden = true;
+    $("sin-acceso").hidden = false;
+  }
+
+  // ---- Métricas ------------------------------------------------------------
+
+  function tarjeta(valor, etiqueta, nota, alerta) {
+    return '<div class="metrica' + (alerta ? ' alerta' : '') + '">' +
+      '<div class="metrica-valor">' + escapeHtml(valor) + '</div>' +
+      '<div class="metrica-etiqueta">' + escapeHtml(etiqueta) + '</div>' +
+      (nota ? '<div class="metrica-nota">' + escapeHtml(nota) + '</div>' : '') +
+    '</div>';
+  }
+
+  function desglose(titulo, obj, vacio) {
+    var claves = Object.keys(obj || {});
+    var lineas = claves.length
+      ? claves.sort().map(function (k) {
+          return '<div class="desglose-linea"><span>' + escapeHtml(etiquetaCanal(k)) +
+                 '</span><span>' + escapeHtml(obj[k]) + '</span></div>';
+        }).join("")
+      : '<p class="vacio">' + escapeHtml(vacio) + '</p>';
+    return '<div class="desglose"><h2>' + escapeHtml(titulo) + '</h2>' + lineas + '</div>';
+  }
+
+  /** Nombres legibles para las claves crudas del backend. `desconocido` es el
+   * canal de las facturas anteriores a que se registrara el origen -- se dice
+   * explícitamente en vez de esconderlas o repartirlas entre los otros. */
+  var ETIQUETAS = {
+    "desconocido": "Sin registrar (previas)",
+    "correo": "Correo", "whatsapp": "WhatsApp", "web": "Web",
+    "valida": "Válidas", "advertencia": "Con advertencia",
+    "por_revisar": "Por revisar", "rechazada": "Rechazadas", "archivada": "Archivadas"
+  };
+  function etiquetaCanal(k) { return ETIQUETAS[k] || k; }
+
+  function pintarMetricas(m) {
+    var c = m.cuentas || {};
+    var f = m.facturas || {};
+
+    $("rejilla-metricas").innerHTML =
+      tarjeta(c.total || 0, "Cuentas totales", "+" + (c.nuevas_7d || 0) + " en 7 días") +
+      tarjeta(c.activas || 0, "Activas") +
+      tarjeta(c.suspendidas || 0, "Suspendidas", null, (c.suspendidas || 0) > 0) +
+      // Estas dos son señales de embudo, no de volumen: una cuenta sin
+      // contraseña nunca completó el registro, y una con RFC pendiente tiene
+      // TODAS sus facturas marcadas como no deducibles.
+      tarjeta(c.sin_password || 0, "Sin contraseña", "no completaron alta", (c.sin_password || 0) > 0) +
+      tarjeta(c.rfc_pendiente || 0, "Sin RFC real", "facturas sin validar", (c.rfc_pendiente || 0) > 0) +
+      tarjeta(c.sin_facturas || 0, "Sin facturas", "nunca enviaron nada") +
+      tarjeta(f.total || 0, "Facturas totales", "+" + (f.ultimos_30d || 0) + " en 30 días") +
+      tarjeta(money(f.monto_total), "Monto acumulado");
+
+    $("desgloses").innerHTML =
+      desglose("Facturas por canal", f.por_canal, "Todavía no hay facturas.") +
+      desglose("Facturas por estatus", f.por_estatus, "Todavía no hay facturas.");
+  }
+
+  // ---- Listado de cuentas --------------------------------------------------
+
+  var cuentas = [];
+
+  function marcaEstado(c) {
+    if (c.suspendida_en) return '<span class="marca-estado suspendida">Suspendida</span>';
+    if (c.rol === "admin") return '<span class="marca-estado admin">Admin</span>';
+    if (!c.tiene_password) return '<span class="marca-estado pendiente">Sin alta</span>';
+    return '<span class="marca-estado activa">Activa</span>';
+  }
+
+  function pintarCuentas(lista, total) {
+    var tb = $("tbody-cuentas");
+    if (!lista.length) {
+      tb.innerHTML = '<tr><td colspan="7" class="vacio">Ninguna cuenta coincide.</td></tr>';
+      $("pie-conteo").textContent = "";
+      return;
+    }
+    tb.innerHTML = lista.map(function (c) {
+      return '<tr class="fila-cuenta" data-id="' + c.id + '" tabindex="0">' +
+        '<td class="mono">' + escapeHtml(c.email) + '</td>' +
+        '<td>' + escapeHtml(c.nombre || "—") + '</td>' +
+        '<td class="mono' + (c.rfc_pendiente ? ' apagado' : '') + '">' + escapeHtml(c.rfc) + '</td>' +
+        '<td>' + marcaEstado(c) + '</td>' +
+        '<td class="mono">' + fechaCorta(c.created_at) + '</td>' +
+        '<td class="num">' + (c.num_facturas || 0) + '</td>' +
+        '<td class="mono">' + fechaCorta(c.ultima_factura_en) + '</td>' +
+      '</tr>';
+    }).join("");
+    $("pie-conteo").textContent = lista.length === total
+      ? lista.length + (lista.length === 1 ? " cuenta" : " cuentas")
+      : "Mostrando " + lista.length + " de " + total + " cuentas";
+  }
+
+  async function cargarCuentas() {
+    var q = $("buscador").value.trim();
+    var estado = $("filtro-estado").value;
+    var ruta = "/api-admin-users?limit=200" +
+      (q ? "&q=" + encodeURIComponent(q) : "") +
+      (estado ? "&estado=" + encodeURIComponent(estado) : "");
+
+    var resp = await pedir(ruta);
+    if (resp.status === 403) { sinAcceso(); return; }
+    if (!resp.ok) { mostrarError("No se pudieron cargar las cuentas."); return; }
+    var datos = await resp.json();
+    cuentas = datos.cuentas || [];
+    pintarCuentas(cuentas, datos.total || cuentas.length);
+  }
+
+  // Se recarga contra el servidor en cada tecleo (con retardo) en vez de
+  // filtrar el arreglo local: la búsqueda debe encontrar cuentas que no están
+  // en la página actual, y con muchas cuentas el listado local es un subconjunto.
+  var temporizadorBusqueda = null;
+  $("buscador").addEventListener("input", function () {
+    clearTimeout(temporizadorBusqueda);
+    temporizadorBusqueda = setTimeout(cargarCuentas, 300);
+  });
+  $("filtro-estado").addEventListener("change", cargarCuentas);
+
+  // ---- Detalle de una cuenta ----------------------------------------------
+
+  var cuentaAbierta = null;
+
+  function filaDato(etiqueta, valor) {
+    return "<dt>" + escapeHtml(etiqueta) + "</dt><dd>" + escapeHtml(valor == null ? "—" : valor) + "</dd>";
+  }
+
+  function bloqueLista(titulo, items, render, vacio) {
+    var cuerpo = items && items.length
+      ? '<ul class="lista-simple">' + items.map(render).join("") + "</ul>"
+      : '<p class="vacio">' + escapeHtml(vacio) + "</p>";
+    return '<div class="bloque"><h2>' + escapeHtml(titulo) + "</h2>" + cuerpo + "</div>";
+  }
+
+  function pintarDetalle(d) {
+    var c = d.cuenta;
+    cuentaAbierta = c;
+    $("detalle-titulo").textContent = c.email;
+
+    var aviso = c.suspendida_en
+      ? '<div class="aviso-suspendida">Suspendida el ' + escapeHtml(fechaCorta(c.suspendida_en)) +
+        (c.suspendida_motivo ? " — " + escapeHtml(c.suspendida_motivo) : "") + "</div>"
+      : "";
+
+    var botonEstado = c.rol === "admin"
+      ? '<p class="vacio">Las cuentas de administrador no se pueden suspender desde aquí.</p>'
+      : '<button type="button" class="btn-accion ' +
+          (c.suspendida_en ? "btn-restaurar" : "btn-peligro") +
+          '" id="btn-cambiar-estado">' +
+          (c.suspendida_en ? "Reactivar cuenta" : "Suspender cuenta") + "</button>";
+
+    $("detalle-cuerpo").innerHTML =
+      aviso +
+      '<div class="bloque"><h2>Cuenta</h2><dl class="datos">' +
+        filaDato("ID", c.id) +
+        filaDato("Nombre", c.nombre) +
+        filaDato("RFC", c.rfc + (c.rfc_pendiente ? "  (pendiente)" : "")) +
+        filaDato("WhatsApp", c.whatsapp_phone) +
+        filaDato("Plan", c.plan) +
+        filaDato("Rol", c.rol) +
+        filaDato("Contraseña", c.tiene_password ? "definida" : "sin definir") +
+        filaDato("Alta", fechaCorta(c.created_at)) +
+        filaDato("Facturas", c.num_facturas) +
+      "</dl></div>" +
+      bloqueLista("RFCs dados de alta", d.rfcs, function (r) {
+        return "<li><strong>" + escapeHtml(r.rfc) + "</strong> · " + escapeHtml(r.tipo) +
+          (r.alias ? " · " + escapeHtml(r.alias) : "") +
+          (r.es_principal ? " · principal" : "") + "</li>";
+      }, "Ninguno.") +
+      bloqueLista("Correos autorizados", d.correos, function (x) {
+        return "<li>" + escapeHtml(x.email) + (x.alias ? " · " + escapeHtml(x.alias) : "") + "</li>";
+      }, "Ninguno: solo puede enviar desde su propio correo.") +
+      bloqueLista("Últimas facturas", d.facturas, function (f) {
+        return "<li>" + escapeHtml(fechaCorta(f.created_at)) + " · " +
+          escapeHtml(f.emisor_nombre || "—") + " · " + escapeHtml(money(f.total)) +
+          " · " + escapeHtml(f.estatus) +
+          " · " + escapeHtml(etiquetaCanal(f.origen || "desconocido")) + "</li>";
+      }, "Esta cuenta no ha registrado ninguna factura.") +
+      '<div class="bloque">' + botonEstado + "</div>";
+
+    var btn = $("btn-cambiar-estado");
+    if (btn) btn.addEventListener("click", cambiarEstado);
+  }
+
+  async function abrirDetalle(id) {
+    mostrarError("");
+    var resp = await pedir("/api-admin-users?id=" + encodeURIComponent(id));
+    if (resp.status === 403) { sinAcceso(); return; }
+    if (!resp.ok) { mostrarError("No se pudo cargar el detalle de esa cuenta."); return; }
+    pintarDetalle(await resp.json());
+    $("fondo-detalle").hidden = false;
+  }
+
+  function cerrarDetalle() {
+    $("fondo-detalle").hidden = true;
+    cuentaAbierta = null;
+  }
+
+  $("tbody-cuentas").addEventListener("click", function (ev) {
+    var fila = ev.target.closest(".fila-cuenta");
+    if (fila) abrirDetalle(fila.dataset.id);
+  });
+  $("tbody-cuentas").addEventListener("keydown", function (ev) {
+    if (ev.key !== "Enter") return;
+    var fila = ev.target.closest(".fila-cuenta");
+    if (fila) { ev.preventDefault(); abrirDetalle(fila.dataset.id); }
+  });
+
+  $("btn-cerrar-detalle").addEventListener("click", cerrarDetalle);
+  $("fondo-detalle").addEventListener("click", function (ev) {
+    if (ev.target === $("fondo-detalle")) cerrarDetalle();
+  });
+  document.addEventListener("keydown", function (ev) {
+    if (ev.key === "Escape" && !$("fondo-detalle").hidden) cerrarDetalle();
+  });
+
+  // ---- Suspender / reactivar ----------------------------------------------
+
+  async function cambiarEstado() {
+    if (!cuentaAbierta) return;
+    var c = cuentaAbierta;
+    var suspender = !c.suspendida_en;
+
+    // Se confirma nombrando la cuenta: corta el acceso de una persona real por
+    // los tres canales a la vez, y un "¿seguro?" genérico invita a aceptar sin leer.
+    var motivo = null;
+    if (suspender) {
+      motivo = prompt(
+        'Vas a suspender a "' + c.email + '".\n\n' +
+        "No podrá entrar a la web ni enviar facturas por correo o WhatsApp.\n" +
+        "Sus datos se conservan.\n\nMotivo (opcional):"
+      );
+      // `prompt` devuelve null solo si se canceló; "" es un motivo vacío válido.
+      if (motivo === null) return;
+    } else if (!confirm('¿Reactivar la cuenta de "' + c.email + '"?')) {
+      return;
+    }
+
+    var btn = $("btn-cambiar-estado");
+    btn.disabled = true;
+    mostrarError("");
+    try {
+      var resp = await pedir("/api-admin-users?id=" + encodeURIComponent(c.id), {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          accion: suspender ? "suspender" : "reactivar",
+          motivo: motivo || undefined,
+        }),
+      });
+      var cuerpo = await resp.json().catch(function () { return {}; });
+      if (!resp.ok) {
+        mostrarError(cuerpo.detail || "No se pudo cambiar el estado de la cuenta.");
+        cerrarDetalle();
+        return;
+      }
+      // Se recarga todo: el cambio mueve los contadores de activas/suspendidas
+      // de las métricas, no solo la fila.
+      cerrarDetalle();
+      await cargarTodo();
+    } catch (e) {
+      mostrarError("No se pudo conectar con el servidor.");
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  // ---- Arranque ------------------------------------------------------------
+
+  async function cargarTodo() {
+    mostrarError("");
+    var resp = await pedir("/api-admin-metrics");
+    if (resp.status === 403) {
+      sinAcceso(token
+        ? "Tu cuenta no tiene permisos de administrador."
+        : "Necesitas iniciar sesión primero.");
+      return;
+    }
+    if (!resp.ok) { mostrarError("No se pudieron cargar las métricas."); return; }
+
+    $("sin-acceso").hidden = true;
+    $("panel").hidden = false;
+    pintarMetricas(await resp.json());
+    await cargarCuentas();
+  }
+
+  $("btn-actualizar").addEventListener("click", async function () {
+    var btn = $("btn-actualizar");
+    btn.disabled = true;
+    try { await cargarTodo(); } finally { btn.disabled = false; }
+  });
+
+  if (!token) {
+    sinAcceso("Necesitas iniciar sesión primero.");
+  } else {
+    cargarTodo();
+  }
+})();
+</script>
+</body>
+</html>

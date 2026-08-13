@@ -61,12 +61,27 @@ async function handleVerification(url: URL): Promise<Response> {
   return new Response("Verificación fallida", { status: 403, headers: corsHeaders });
 }
 
+/** Lo que se le responde por WhatsApp a una cuenta suspendida (Fase M23).
+ * Se le dice por qué: quedarse callado o dar un error genérico haría que el
+ * usuario reintentara indefinidamente sin entender qué pasa. */
+const AVISO_SUSPENDIDA =
+  "Tu cuenta está suspendida, así que no podemos procesar esta factura. " +
+  "Escríbenos para reactivarla.";
+
 async function handleTextMessage(
   // deno-lint-ignore no-explicit-any
   supabase: any, msg: { from: string; text: string; profile_name: string | null },
   whatsappToken: string, phoneNumberId: string,
 ): Promise<Record<string, unknown>> {
   const user = await getOrCreateUserByPhone(supabase, msg.from, msg.profile_name);
+
+  // Antes de cualquier otra cosa: ni menú, ni comandos rápidos, ni chat con el
+  // modelo. Una cuenta suspendida no consume tokens de OpenAI.
+  if (user.suspendida) {
+    await sendWhatsappMessage(msg.from, AVISO_SUSPENDIDA, whatsappToken, phoneNumberId);
+    await logDebug(supabase, "whatsapp: cuenta suspendida", { from: msg.from });
+    return { from: msg.from, tipo: "suspendida" };
+  }
 
   // Menú (M21). Saludo, "ayuda" o la palabra "menu" mandan, además del texto
   // de siempre, un menú tocable -- así un usuario nuevo no depende de
@@ -251,6 +266,15 @@ async function handleIncoming(req: Request): Promise<Response> {
       continue;
     }
 
+    // Se corta ANTES de descargar el archivo de Meta: no tiene sentido gastar
+    // el round trip a la Graph API por una factura que no se va a guardar.
+    if (user.suspendida) {
+      await sendWhatsappMessage(msg.from, AVISO_SUSPENDIDA, whatsappToken, phoneNumberId);
+      await logDebug(supabase, "whatsapp: factura rechazada por cuenta suspendida", { from: msg.from });
+      resultados.push({ from: msg.from, estatus: "suspendida" });
+      continue;
+    }
+
     let contenido: Uint8Array;
     try {
       const media = await downloadMediaFromMeta(msg.media_id, whatsappToken);
@@ -264,7 +288,7 @@ async function handleIncoming(req: Request): Promise<Response> {
 
     let ingestResult;
     try {
-      ingestResult = await ingestInvoice(supabase, user, contenido, msg.filename);
+      ingestResult = await ingestInvoice(supabase, user, contenido, msg.filename, "whatsapp");
     } catch (exc) {
       console.error(`Error procesando factura de ${msg.from}:`, exc);
       await logDebug(supabase, "whatsapp: error procesando factura", { from: msg.from, error: String(exc) });

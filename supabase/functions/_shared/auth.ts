@@ -101,15 +101,34 @@ export function verifyRefreshToken(
   return verifyTokenType(token, "refresh", secretKey);
 }
 
-/** Extrae el Bearer token del header Authorization, lo verifica, y
- * confirma que el usuario sigue existiendo en BD — mismo flujo que
- * `get_current_user()` en Python (dependencia de FastAPI). El `rfc`
- * devuelto viene de la BD (fuente canónica), no del claim del token. */
-export async function getCurrentUser(
+/** Fila de `users` que necesita la autenticación: identidad, rol y estado.
+ * No se expone — `getCurrentUser` devuelve solo `{id, rfc}`, que es lo único
+ * que consumen los endpoints. */
+interface FilaAutenticacion {
+  id: number;
+  rfc: string;
+  rol: string | null;
+  suspendida_en: string | null;
+}
+
+/** Verifica el Bearer token y trae la fila del usuario, o `null`.
+ *
+ * Aquí es donde se corta el acceso de una cuenta SUSPENDIDA (Fase M23), y es
+ * deliberado que sea aquí y no en cada endpoint: los ~12 endpoints
+ * autenticados ya pasan todos por `getCurrentUser`, así que este único punto
+ * los cubre a todos. Poner el chequeo endpoint por endpoint habría garantizado
+ * que alguno se olvidara -- y "se me olvidó en uno" significa que la cuenta
+ * suspendida sigue teniendo acceso justo por ahí.
+ *
+ * Una cuenta suspendida es indistinguible de un token inválido desde afuera
+ * (ambos dan 401). El mensaje explícito de "tu cuenta está suspendida" se da
+ * en el login, que es donde el usuario puede entenderlo y actuar.
+ */
+async function cargarUsuarioAutenticado(
   authHeader: string | null,
   supabase: SupabaseClient,
   secretKey: string,
-): Promise<AuthenticatedUser | null> {
+): Promise<FilaAutenticacion | null> {
   if (!authHeader?.startsWith("Bearer ")) return null;
 
   const token = authHeader.slice("Bearer ".length);
@@ -119,10 +138,48 @@ export async function getCurrentUser(
   const { data: user, error } = await supabase
     .schema("facturapp")
     .from("users")
-    .select("id, rfc")
+    .select("id, rfc, rol, suspendida_en")
     .eq("id", tokenData.userId)
     .maybeSingle();
 
   if (error || !user) return null;
-  return user as AuthenticatedUser;
+  const fila = user as FilaAutenticacion;
+  if (fila.suspendida_en) return null;
+  return fila;
+}
+
+/** Extrae el Bearer token del header Authorization, lo verifica, y
+ * confirma que el usuario sigue existiendo en BD — mismo flujo que
+ * `get_current_user()` en Python (dependencia de FastAPI). El `rfc`
+ * devuelto viene de la BD (fuente canónica), no del claim del token. */
+export async function getCurrentUser(
+  authHeader: string | null,
+  supabase: SupabaseClient,
+  secretKey: string,
+): Promise<AuthenticatedUser | null> {
+  const fila = await cargarUsuarioAutenticado(authHeader, supabase, secretKey);
+  if (!fila) return null;
+  // Solo id y rfc: el rol y el estado son asunto de la autenticación, no algo
+  // que los endpoints de negocio deban ver ni poder confundir con datos suyos.
+  return { id: fila.id, rfc: fila.rfc };
+}
+
+/** Igual que `getCurrentUser`, pero además exige rol de administrador
+ * (Fase M23). Es el guard de los endpoints `api-admin-*`, que leen y modifican
+ * datos de TODAS las cuentas.
+ *
+ * Devuelve `null` tanto si no hay sesión válida como si la hay pero sin
+ * permisos: quien llama responde 403 en ambos casos, y así un usuario normal
+ * no puede distinguir "este endpoint existe pero no eres admin" de "no
+ * existe". */
+export async function getCurrentAdmin(
+  authHeader: string | null,
+  supabase: SupabaseClient,
+  secretKey: string,
+): Promise<AuthenticatedUser | null> {
+  const fila = await cargarUsuarioAutenticado(authHeader, supabase, secretKey);
+  // `rol` puede venir nulo en filas anteriores a la migración 0013; cualquier
+  // valor que no sea exactamente "admin" niega el acceso (falla cerrado).
+  if (!fila || fila.rol !== "admin") return null;
+  return { id: fila.id, rfc: fila.rfc };
 }

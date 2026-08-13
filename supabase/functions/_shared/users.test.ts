@@ -111,12 +111,14 @@ Deno.test("getUserProfile: devuelve el perfil completo por id", async () => {
   supabase.tables.users.push({
     id: 1, email: "daniela@example.com", nombre: "Daniela Ávila",
     rfc: "DAXX860715XX0", plan: "free", web_token: "TOKEN123", whatsapp_phone: null,
+    rol: "usuario",
   });
 
   const profile = await getUserProfile(supabase, 1);
   assertEquals(profile, {
     id: 1, email: "daniela@example.com", nombre: "Daniela Ávila",
     rfc: "DAXX860715XX0", plan: "free", web_token: "TOKEN123", whatsapp_phone: null,
+    rol: "usuario",
   });
 });
 

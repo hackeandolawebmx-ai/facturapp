@@ -37,7 +37,7 @@ Deno.test("ingestInvoice: XML válido se guarda con estatus 200", async () => {
   const user = supabase.tables.users[0];
   const contenido = new TextEncoder().encode(testdata("valido.xml"));
 
-  const result = await ingestInvoice(supabase, user, contenido, "factura.xml");
+  const result = await ingestInvoice(supabase, user, contenido, "factura.xml", "web");
 
   assertEquals(result.status_code, 200);
   // El RFC del usuario de prueba (DAXX860715XX0) SÍ coincide con el receptor
@@ -53,7 +53,7 @@ Deno.test("ingestInvoice: contenido PDF da 202 y NO se guarda", async () => {
   const user = supabase.tables.users[0];
   const contenido = new TextEncoder().encode("%PDF-1.4 contenido falso");
 
-  const result = await ingestInvoice(supabase, user, contenido, "factura.pdf");
+  const result = await ingestInvoice(supabase, user, contenido, "factura.pdf", "web");
 
   assertEquals(result.status_code, 202);
   assertEquals(result.estatus, "por_revisar");
@@ -65,7 +65,7 @@ Deno.test("ingestInvoice: XML mal formado da 422 y NO se guarda", async () => {
   const user = supabase.tables.users[0];
   const contenido = new TextEncoder().encode("<esto no es xml valido>");
 
-  const result = await ingestInvoice(supabase, user, contenido, "factura.xml");
+  const result = await ingestInvoice(supabase, user, contenido, "factura.xml", "web");
 
   assertEquals(result.status_code, 422);
   assertEquals(result.estatus, "rechazada");
@@ -77,11 +77,11 @@ Deno.test("ingestInvoice: UUID duplicado se rechaza y NO se guarda de nuevo", as
   const user = supabase.tables.users[0];
   const contenido = new TextEncoder().encode(testdata("valido.xml"));
 
-  const primero = await ingestInvoice(supabase, user, contenido, "factura.xml");
+  const primero = await ingestInvoice(supabase, user, contenido, "factura.xml", "web");
   assertEquals(primero.status_code, 200);
   assertEquals(supabase.tables.invoices.length, 1);
 
-  const segundo = await ingestInvoice(supabase, user, contenido, "factura.xml");
+  const segundo = await ingestInvoice(supabase, user, contenido, "factura.xml", "web");
   assertEquals(segundo.estatus, "rechazada");
   assertEquals(segundo.hallazgos[0].codigo, "UUID_DUPLICADO");
   assertEquals(supabase.tables.invoices.length, 1); // no se duplicó
@@ -108,7 +108,7 @@ Deno.test("ingestInvoice: factura de un RFC moral se archiva sin clasificar", as
   conRfcDeCuenta(supabase, "DAXX860715XX0", "moral");
 
   const result = await ingestInvoice(
-    supabase, supabase.tables.users[0], xmlValido(), "factura.xml",
+    supabase, supabase.tables.users[0], xmlValido(), "factura.xml", "web",
   );
 
   assertEquals(result.estatus, "archivada");
@@ -125,7 +125,7 @@ Deno.test("ingestInvoice: el archivado explica por qué, no calla", async () => 
   conRfcDeCuenta(supabase, "DAXX860715XX0", "moral");
 
   const result = await ingestInvoice(
-    supabase, supabase.tables.users[0], xmlValido(), "factura.xml",
+    supabase, supabase.tables.users[0], xmlValido(), "factura.xml", "web",
   );
   assertEquals(result.hallazgos[0].mensaje.includes("morales"), true);
 });
@@ -137,7 +137,7 @@ Deno.test("ingestInvoice: el MISMO XML en un RFC físico sí se clasifica", asyn
   conRfcDeCuenta(supabase, "DAXX860715XX0", "fisica");
 
   const result = await ingestInvoice(
-    supabase, supabase.tables.users[0], xmlValido(), "factura.xml",
+    supabase, supabase.tables.users[0], xmlValido(), "factura.xml", "web",
   );
   assertEquals(result.estatus, "valida");
   assertEquals(result.categoria, "Médicos");
@@ -148,7 +148,7 @@ Deno.test("ingestInvoice: sin RFCs dados de alta se conserva el comportamiento p
   const supabase = clientWithUser(1, "DAXX860715XX0");
 
   const result = await ingestInvoice(
-    supabase, supabase.tables.users[0], xmlValido(), "factura.xml",
+    supabase, supabase.tables.users[0], xmlValido(), "factura.xml", "web",
   );
   assertEquals(result.estatus, "valida");
   assertEquals(result.categoria, "Médicos");
@@ -160,7 +160,7 @@ Deno.test("ingestInvoice: RFC ajeno da advertencia pero SÍ se guarda", async ()
   const user = supabase.tables.users[0];
   const contenido = new TextEncoder().encode(testdata("valido.xml"));
 
-  const result = await ingestInvoice(supabase, user, contenido, "factura.xml");
+  const result = await ingestInvoice(supabase, user, contenido, "factura.xml", "web");
 
   assertEquals(result.estatus, "advertencia");
   assertEquals(result.hallazgos[0].codigo, "RFC_AJENO");

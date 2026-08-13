@@ -97,13 +97,24 @@ function archivarSinEvaluar(
   };
 }
 
+/** Canal por el que entró una factura (Fase M23). Sin este dato no hay forma
+ * de responder "¿por dónde llegan las facturas?", que es la primera pregunta
+ * al decidir dónde invertir. */
+export type OrigenFactura = "correo" | "whatsapp" | "web";
+
 /** Parsea, valida, clasifica y guarda un CFDI para `user`. Devuelve el mismo
- * shape que `_ingest_invoice()` en Python (status_code + body). */
+ * shape que `_ingest_invoice()` en Python (status_code + body).
+ *
+ * `origen` es obligatorio a propósito, no opcional con un default: así el
+ * compilador obliga a cada canal —los tres de hoy y cualquiera que se agregue—
+ * a declarar cuál es. Un parámetro opcional habría dejado que un canal nuevo
+ * escribiera NULL en silencio y ensuciara la métrica sin que nada fallara. */
 export async function ingestInvoice(
   supabase: SupabaseClient,
   user: AppUser & { id: number },
   contenido: Uint8Array,
   filename: string,
+  origen: OrigenFactura,
 ): Promise<IngestResult> {
   const nombre = (filename || "").toLowerCase();
   const esPdf =
@@ -198,6 +209,7 @@ export async function ingestInvoice(
         estatus: resultado.status,
         hallazgos: resultado.hallazgos,
         raw_xml: invoice.raw_xml,
+        origen,
       })
       .select("id")
       .single();

@@ -62,7 +62,7 @@ async function handlePost(req: Request): Promise<Response> {
 
   const { data: user, error } = await supabase
     .schema("facturapp").from("users")
-    .select("id, rfc, hashed_password")
+    .select("id, rfc, hashed_password, suspendida_en")
     .eq("email", email)
     .maybeSingle();
 
@@ -70,6 +70,23 @@ async function handlePost(req: Request): Promise<Response> {
   if (!user || !user.hashed_password || !verifyPassword(password, user.hashed_password)) {
     console.warn(`Login fallido para ${email}`);
     return jsonResponse({ detail: "Credenciales inválidas" }, 401);
+  }
+
+  // Cuenta suspendida (Fase M23): se rechaza DESPUÉS de comprobar la
+  // contraseña, no antes. Hacerlo antes convertiría este endpoint en un
+  // oráculo que revela qué correos existen y están suspendidos a cualquiera
+  // que pruebe direcciones.
+  //
+  // El mensaje sí es explícito, a diferencia del 401 genérico de
+  // getCurrentUser: aquí el usuario acaba de probar que la cuenta es suya, y
+  // dejarlo con "credenciales inválidas" lo mandaría a resetear una
+  // contraseña que no tiene nada de malo.
+  if (user.suspendida_en) {
+    console.warn(`Login rechazado por cuenta suspendida: ${email}`);
+    return jsonResponse(
+      { detail: "Tu cuenta está suspendida. Escríbenos para reactivarla." },
+      403,
+    );
   }
 
   const access = await createAccessToken(user.id, user.rfc, secretKey);

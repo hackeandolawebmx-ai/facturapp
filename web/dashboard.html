@@ -471,6 +471,8 @@
     </div>
     <div class="identidad">
       <button type="button" class="btn-plano" id="btn-actualizar-global" title="Volver a cargar esta pantalla">Actualizar</button>
+      <!-- Solo para cuentas con rol admin; se revela en cargarPerfil(). -->
+      <a class="btn-plano" id="enlace-admin" href="/admin.html" hidden>Admin</a>
       <span class="rfc-actual" id="rfc-actual"></span>
       <button class="btn-plano" id="btn-cambiar-password">Contraseña</button>
       <button class="btn-plano" id="btn-salir">Salir</button>
@@ -1039,6 +1041,9 @@
     // no deducible, así que se pide de forma prominente.
     var pendiente = /^PEND/i.test(perfil.rfc || "");
     $("aviso-rfc").hidden = !pendiente;
+    // Enlace al back-office (Fase M23). Ocultarlo es solo cortesía: quien
+    // llegue a /admin.html sin rol de admin recibe 403 del servidor.
+    $("enlace-admin").hidden = perfil.rol !== "admin";
   }
 
   $("btn-guardar-rfc").addEventListener("click", async function () {

@@ -55,7 +55,7 @@ serve(async (req: Request) => {
 
   let result;
   try {
-    result = await ingestInvoice(supabase, authUser, xmlBytes, xmlFile.name || "factura.xml");
+    result = await ingestInvoice(supabase, authUser, xmlBytes, xmlFile.name || "factura.xml", "web");
   } catch (exc) {
     console.error(`Error procesando factura subida por usuario ${authUser.id}:`, exc);
     return jsonResponse({ detail: "No se pudo procesar la factura" }, 500);
