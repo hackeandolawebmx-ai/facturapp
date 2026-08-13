@@ -470,6 +470,7 @@
               aria-label="Contribuyente" hidden></select>
     </div>
     <div class="identidad">
+      <button type="button" class="btn-plano" id="btn-actualizar-global" title="Volver a cargar esta pantalla">Actualizar</button>
       <span class="rfc-actual" id="rfc-actual"></span>
       <button class="btn-plano" id="btn-cambiar-password">Contraseña</button>
       <button class="btn-plano" id="btn-salir">Salir</button>
@@ -1372,17 +1373,48 @@
 
   // ---- Actualizar / Subir factura (Fase M19) -------------------------------
 
+  async function refrescarFacturasYResumen() {
+    await cargarDatos();
+    // Se marca "visto" DESPUÉS de recargar, no antes: si se fijara primero
+    // y la petición fallara, facturas nuevas que nunca llegaron a
+    // mostrarse quedarían marcadas como ya vistas.
+    ultimaVistaFacturas = new Date().toISOString();
+    localStorage.setItem(CLAVE_ULTIMA_VISTA, ultimaVistaFacturas);
+    aplicarFiltros();
+  }
+
   $("btn-actualizar").addEventListener("click", async function () {
     var btn = $("btn-actualizar");
     btn.disabled = true;
     try {
-      await cargarDatos();
-      // Se marca "visto" DESPUÉS de recargar, no antes: si se fijara primero
-      // y la petición fallara, facturas nuevas que nunca llegaron a
-      // mostrarse quedarían marcadas como ya vistas.
-      ultimaVistaFacturas = new Date().toISOString();
-      localStorage.setItem(CLAVE_ULTIMA_VISTA, ultimaVistaFacturas);
-      aplicarFiltros();
+      await refrescarFacturasYResumen();
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  /** Botón "Actualizar" de la topbar (Fase M22): visible en cualquier
+   * pestaña, recarga lo que corresponda a la que esté activa en ese
+   * momento -- no siempre son facturas (p. ej. en Contribuyentes hay que
+   * refrescar RFCs y correos autorizados, no la tabla de facturas). */
+  $("btn-actualizar-global").addEventListener("click", async function () {
+    var btn = $("btn-actualizar-global");
+    var pagina = document.querySelector(".tab.activo");
+    var sufijo = pagina ? pagina.dataset.tab : "resumen";
+    btn.disabled = true;
+    try {
+      if (sufijo === "contribuyentes") {
+        mostrarError("error-rfcs", "");
+        mostrarError("error-correos", "");
+        pintarTablaRfcs();
+        actualizarAyudaTipo();
+        await cargarCorreos().then(pintarTablaCorreos);
+      } else if (sufijo === "ayuda") {
+        // Página estática -- no hay datos que recargar, pero el botón
+        // sigue visible por consistencia con el resto de pestañas.
+      } else {
+        await refrescarFacturasYResumen();
+      }
     } finally {
       btn.disabled = false;
     }
