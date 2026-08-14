@@ -51,10 +51,16 @@ serve(async (req: Request) => {
     : { anio: anioFiscalActual(), mes: mesFiscalActual() };
 
   const supabase = getSupabaseClient();
+  // Se excluyen las cuentas suspendidas (Fase M23). No es solo cortesía:
+  // mandarle a alguien "tienes 3 facturas por revisar" cuando le bloqueamos
+  // el acceso para ir a revisarlas es peor que no decirle nada. La suspensión
+  // corta la entrada en getCurrentUser y en los canales de ingesta; este es
+  // el único camino de SALIDA, y también tiene que respetarla.
   const { data: usuarios, error } = await supabase
     .schema("facturapp").from("users")
     .select("id, whatsapp_phone")
-    .not("whatsapp_phone", "is", null);
+    .not("whatsapp_phone", "is", null)
+    .is("suspendida_en", null);
   if (error) {
     console.error("Error listando usuarios para el aviso mensual:", error);
     return jsonResponse({ detail: "Error consultando usuarios" }, 500);
