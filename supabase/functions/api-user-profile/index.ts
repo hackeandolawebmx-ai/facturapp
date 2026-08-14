@@ -3,10 +3,8 @@ import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { corsHeaders, jsonHeaders } from "../_shared/cors.ts";
 import { getCurrentUser } from "../_shared/auth.ts";
-import {
-  getUserProfile, revalidarFacturasTrasCambioDeRfc, rfcTomadoPorOtro, updateUserRfc,
-} from "../_shared/users.ts";
-import { validateRfc } from "../_shared/rfc_validation.ts";
+import { getUserProfile } from "../_shared/users.ts";
+import { capturarRfc } from "../_shared/onboarding.ts";
 
 function getSupabaseClient() {
   return createClient(
@@ -60,30 +58,32 @@ async function handlePatch(req: Request): Promise<Response> {
     return jsonResponse({ detail: "JSON inválido" }, 400);
   }
 
-  const rfc = validateRfc(payload.rfc ?? "");
-  if (!rfc) {
+  // Fase M24: los cuatro pasos (validar, comprobar que no esté tomado,
+  // guardar, y revalidar las facturas ya archivadas) viven en capturarRfc,
+  // compartidos con el bot de WhatsApp. Antes estaban escritos aquí; al
+  // agregar el segundo canal, duplicarlos habría bastado con que uno olvidara
+  // la revalidación para dejar a ese usuario con advertencias falsas
+  // permanentes -- ver revalidarRfcAjeno() en validator.ts.
+  const resultado = await capturarRfc(supabase, authUser.id, payload.rfc ?? "");
+
+  if (!resultado.ok) {
+    if (resultado.motivo === "tomado") {
+      return jsonResponse({ detail: "Ese RFC ya está registrado en otra cuenta" }, 409);
+    }
+    if (resultado.motivo === "error") {
+      return jsonResponse({ detail: "No se pudo actualizar el perfil" }, 500);
+    }
     return jsonResponse(
       { detail: "RFC debe tener 13 caracteres alfanuméricos (formato: AAAA000000XXX)" },
       422,
     );
   }
 
-  if (await rfcTomadoPorOtro(supabase, authUser.id, rfc)) {
-    return jsonResponse({ detail: "Ese RFC ya está registrado en otra cuenta" }, 409);
-  }
-
-  const perfil = await updateUserRfc(supabase, authUser.id, rfc);
-  if (!perfil) {
-    return jsonResponse({ detail: "No se pudo actualizar el perfil" }, 500);
-  }
-
-  // Las facturas ya archivadas se validaron contra el RFC anterior. Si no se
-  // recalculan, quedan advertencias que se contradicen con el perfil en
-  // pantalla: "Factura emitida a RFC X; no será deducible" junto a un RFC de
-  // usuario que ES X. Ver revalidarRfcAjeno() en validator.ts.
-  const revalidadas = await revalidarFacturasTrasCambioDeRfc(supabase, authUser.id, rfc);
-
-  return jsonResponse({ ...perfil, facturas_revalidadas: revalidadas }, 200);
+  const perfil = await getUserProfile(supabase, authUser.id);
+  return jsonResponse(
+    { ...perfil, facturas_revalidadas: resultado.facturasActualizadas },
+    200,
+  );
 }
 
 serve(async (req: Request) => {

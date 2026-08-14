@@ -36,6 +36,10 @@ import {
   MENSAJE_WEB_NO_DISPONIBLE, MENU_PRINCIPAL, textoDeFilaMenu,
 } from "../_shared/whatsapp_commands.ts";
 import { generarResetToken, getOrCreateUserByPhone, getUserAuth } from "../_shared/users.ts";
+import {
+  AVISO_SIN_RFC, capturarRfc, confirmacionRfc, errorCaptura, mensajeEsRfc,
+  PEDIR_RFC, tieneRfcPendiente,
+} from "../_shared/onboarding.ts";
 import { ingestInvoice } from "../_shared/invoices.ts";
 import { chat, getRecentChatHistory, realChatCompletion } from "../_shared/chat.ts";
 import { logDebug } from "../_shared/debug_log.ts";
@@ -83,6 +87,29 @@ async function handleTextMessage(
     return { from: msg.from, tipo: "suspendida" };
   }
 
+  // Captura del RFC (M24). Va ANTES que el menú, los comandos rápidos y el
+  // chat: un mensaje que es solo un RFC no es una pregunta que deba llegarle
+  // al modelo, y si cayera ahí el usuario recibiría una respuesta
+  // conversacional en vez de que su dato quedara guardado.
+  //
+  // Solo aplica a cuentas con RFC pendiente. Para una cuenta ya configurada,
+  // un RFC suelto sigue su camino normal (el usuario puede estar preguntando
+  // algo sobre él).
+  const rfcPendiente = tieneRfcPendiente(user.rfc);
+  if (rfcPendiente && mensajeEsRfc(msg.text)) {
+    const resultado = await capturarRfc(supabase, user.id, msg.text.trim());
+    const respuesta = resultado.ok
+      ? confirmacionRfc(resultado.rfc, resultado.facturasActualizadas)
+      : errorCaptura(resultado.motivo);
+    await logDebug(supabase, "whatsapp: captura de RFC", {
+      from: msg.from,
+      ok: resultado.ok,
+      motivo: resultado.ok ? null : resultado.motivo,
+    });
+    await sendWhatsappMessage(msg.from, respuesta, whatsappToken, phoneNumberId);
+    return { from: msg.from, tipo: "captura_rfc", ok: resultado.ok };
+  }
+
   // Menú (M21). Saludo, "ayuda" o la palabra "menu" mandan, además del texto
   // de siempre, un menú tocable -- así un usuario nuevo no depende de
   // adivinar la frase exacta para cada función. Va antes que
@@ -90,6 +117,11 @@ async function handleTextMessage(
   // interceptQuickCommand decide el texto que la acompaña (o ninguno, si
   // el disparador fue la palabra "menu" a secas).
   if (esPeticionDeMenu(msg.text)) {
+    // Un saludo de una cuenta sin RFC es el otro momento natural para pedirlo:
+    // el usuario acaba de abrir la conversación, no está a media tarea.
+    if (rfcPendiente) {
+      await sendWhatsappMessage(msg.from, PEDIR_RFC, whatsappToken, phoneNumberId);
+    }
     const textoQuickCommand = interceptQuickCommand(msg.text);
     if (textoQuickCommand !== null) {
       await sendWhatsappMessage(msg.from, textoQuickCommand, whatsappToken, phoneNumberId);
@@ -299,9 +331,14 @@ async function handleIncoming(req: Request): Promise<Response> {
     resultados.push({ from: msg.from, ...ingestResult });
 
     try {
-      await sendWhatsappMessage(
-        msg.from, whatsappReplyText(ingestResult), whatsappToken, phoneNumberId,
-      );
+      // Si la cuenta sigue sin RFC real, la respuesta lleva pegada la
+      // explicación: la advertencia "no será deducible" que acaba de recibir
+      // NO es un juicio sobre su factura, es el dato que falta. Sin esto, la
+      // lectura natural del usuario es que el sistema rechazó su comprobante
+      // -- y es justo el primer mensaje que recibe de nosotros.
+      const texto = whatsappReplyText(ingestResult) +
+        (tieneRfcPendiente(user.rfc) ? AVISO_SIN_RFC : "");
+      await sendWhatsappMessage(msg.from, texto, whatsappToken, phoneNumberId);
     } catch (exc) {
       console.error(`No se pudo enviar la respuesta de WhatsApp a ${msg.from}:`, exc);
     }
