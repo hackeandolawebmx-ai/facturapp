@@ -974,28 +974,57 @@
 
   // ---- Velo de carga -------------------------------------------------------
 
-  var veloOculto = false;
+  // El velo también se usa al pulsar "Actualizar", no solo al arrancar, así
+  // que tiene que poder mostrarse más de una vez.
+  //
+  // VELO_MINIMO es lo que evita que sea peor el remedio: una recarga de 80ms
+  // haría aparecer y desaparecer el velo en dos fotogramas, que se percibe
+  // como un parpadeo o un fallo de pintado, no como "está cargando".
+  // Garantizando un mínimo en pantalla, la transición se lee como
+  // intencional aunque los datos ya estuvieran listos.
+  var VELO_MINIMO = 450;
+  var veloDesde = Date.now();   // el velo ya está visible al cargar la página
+  var temporizadorSeguridad = null;
 
-  /** Retira el velo. Idempotente: se llama desde varios caminos (login,
-   * alta, sesión inválida, datos ya cargados) y cualquiera puede llegar
-   * primero. */
-  function ocultarVelo() {
-    if (veloOculto) return;
-    veloOculto = true;
+  function mostrarVelo() {
     var velo = $("velo-carga");
     if (!velo) return;
-    velo.classList.add("saliendo");
-    // Se retira del DOM al terminar la transición: dejarlo con opacity:0
-    // encima de la app seguiría capturando clics si algo tocara
-    // pointer-events más adelante.
-    setTimeout(function () { velo.hidden = true; }, 320);
+    velo.hidden = false;
+    // Forzar reflow entre quitar `hidden` y quitar `saliendo`: sin esto el
+    // navegador agrupa ambos cambios en el mismo fotograma y no hay
+    // transición que animar, así que el velo aparecería de golpe.
+    void velo.offsetWidth;
+    velo.classList.remove("saliendo");
+    veloDesde = Date.now();
+    armarSeguridad();
   }
 
-  // Red de seguridad: si una petición se queda colgada o algo falla por un
-  // camino que no previmos, el velo NO puede quedarse tapando la app para
-  // siempre. A los 10s se retira pase lo que pase -- mejor un armazón vacío,
-  // que al menos permite navegar, que un logo eterno.
-  setTimeout(ocultarVelo, 10000);
+  /** Retira el velo, respetando el mínimo en pantalla. Idempotente: lo
+   * llaman varios caminos (login, alta, sesión inválida, datos ya cargados)
+   * y cualquiera puede llegar primero. */
+  function ocultarVelo() {
+    var velo = $("velo-carga");
+    if (!velo || velo.hidden) return;
+    var restante = Math.max(0, VELO_MINIMO - (Date.now() - veloDesde));
+    setTimeout(function () {
+      velo.classList.add("saliendo");
+      // Se retira del DOM al terminar la transición: dejarlo con opacity:0
+      // encima de la app seguiría capturando clics si algo tocara
+      // pointer-events más adelante.
+      setTimeout(function () { velo.hidden = true; }, 320);
+    }, restante);
+  }
+
+  /** Red de seguridad: si una petición se queda colgada o algo falla por un
+   * camino que no previmos, el velo NO puede quedarse tapando la app. A los
+   * 10s se retira pase lo que pase -- mejor una pantalla que al menos deja
+   * navegar que un logo eterno. Se rearma en cada `mostrarVelo` para que una
+   * recarga tardía no herede el temporizador de la carga inicial. */
+  function armarSeguridad() {
+    clearTimeout(temporizadorSeguridad);
+    temporizadorSeguridad = setTimeout(ocultarVelo, 10000);
+  }
+  armarSeguridad();
 
   function mostrarSolo(id) {
     PANTALLAS.forEach(function (p) { $(p).hidden = (p !== id); });
@@ -1604,6 +1633,10 @@
     var pagina = document.querySelector(".tab.activo");
     var sufijo = pagina ? pagina.dataset.tab : "resumen";
     btn.disabled = true;
+    // El velo también aquí: sin él, pulsar Actualizar y que todo siga igual
+    // deja la duda de si el botón hizo algo. Aunque los datos lleguen en
+    // milisegundos, VELO_MINIMO garantiza que la respuesta se vea.
+    mostrarVelo();
     try {
       if (sufijo === "contribuyentes") {
         mostrarError("error-rfcs", "");
@@ -1619,6 +1652,9 @@
       }
     } finally {
       btn.disabled = false;
+      // En `finally`: si la recarga falla, el velo se retira igual y deja
+      // ver el mensaje de error.
+      ocultarVelo();
     }
   });
 

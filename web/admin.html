@@ -281,19 +281,45 @@
 
   function $(id) { return document.getElementById(id); }
 
-  var veloOculto = false;
-  /** Retira el velo de carga. Idempotente: lo llaman varios caminos y
-   * cualquiera puede llegar primero. */
-  function ocultarVelo() {
-    if (veloOculto) return;
-    veloOculto = true;
+  // El velo se reutiliza al pulsar "Actualizar", así que debe poder mostrarse
+  // más de una vez. VELO_MINIMO evita que una recarga de 80ms lo haga
+  // aparecer y desaparecer en dos fotogramas: eso se percibe como un
+  // parpadeo, no como "está cargando".
+  var VELO_MINIMO = 450;
+  var veloDesde = Date.now();   // ya está visible al cargar la página
+  var temporizadorSeguridad = null;
+
+  function mostrarVelo() {
     var velo = $("velo-carga");
     if (!velo) return;
-    velo.classList.add("saliendo");
-    setTimeout(function () { velo.hidden = true; }, 320);
+    velo.hidden = false;
+    // Reflow forzado entre quitar `hidden` y quitar `saliendo`: si no, ambos
+    // cambios caen en el mismo fotograma y no hay transición que animar.
+    void velo.offsetWidth;
+    velo.classList.remove("saliendo");
+    veloDesde = Date.now();
+    armarSeguridad();
   }
-  // Red de seguridad: el velo nunca debe quedarse tapando la app.
-  setTimeout(ocultarVelo, 10000);
+
+  /** Retira el velo respetando el mínimo en pantalla. Idempotente. */
+  function ocultarVelo() {
+    var velo = $("velo-carga");
+    if (!velo || velo.hidden) return;
+    var restante = Math.max(0, VELO_MINIMO - (Date.now() - veloDesde));
+    setTimeout(function () {
+      velo.classList.add("saliendo");
+      setTimeout(function () { velo.hidden = true; }, 320);
+    }, restante);
+  }
+
+  /** Red de seguridad: el velo nunca debe quedarse tapando la app. Se rearma
+   * en cada mostrarVelo para que una recarga tardía no herede el
+   * temporizador de la carga inicial. */
+  function armarSeguridad() {
+    clearTimeout(temporizadorSeguridad);
+    temporizadorSeguridad = setTimeout(ocultarVelo, 10000);
+  }
+  armarSeguridad();
 
   function escapeHtml(s) {
     return String(s == null ? "" : s)
@@ -629,7 +655,10 @@
   $("btn-actualizar").addEventListener("click", async function () {
     var btn = $("btn-actualizar");
     btn.disabled = true;
-    try { await cargarTodo(); } finally { btn.disabled = false; }
+    // Igual que en el dashboard: sin señal visible, pulsar Actualizar y que
+    // los números no cambien deja la duda de si el botón hizo algo.
+    mostrarVelo();
+    try { await cargarTodo(); } finally { btn.disabled = false; ocultarVelo(); }
   });
 
   if (!token) {
