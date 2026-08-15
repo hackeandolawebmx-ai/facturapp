@@ -42,11 +42,14 @@
                background:var(--morado-fondo);color:var(--morado);border:1px solid var(--morado-borde);
                border-radius:var(--radio-pill);padding:.1rem .55rem;letter-spacing:.04em}
   .identidad{margin-left:auto;display:flex;align-items:center;gap:.7rem;font-size:.8rem;color:var(--tinta-suave)}
-  .btn-plano{background:none;border:1px solid var(--regla);border-radius:var(--radio-sm);padding:.25rem .6rem;font-size:.75rem;color:var(--tinta-suave)}
+  /* Mismos estilos para <button> y <a> (el de "Volver al dashboard"): sin
+     esto el enlace sale subrayado y con otra altura, y la fila se ve chueca. */
+  .btn-plano{background:none;border:1px solid var(--regla);border-radius:var(--radio-sm);padding:.25rem .6rem;font-size:.75rem;color:var(--tinta-suave);
+             text-decoration:none;display:inline-flex;align-items:center;white-space:nowrap}
   .btn-plano:hover{border-color:var(--tinta);color:var(--tinta)}
   .btn-plano:disabled{opacity:.5;cursor:default}
 
-  .contenido{padding:2rem 2rem 4rem}
+  .contenido{max-width:1600px;margin-inline:auto;padding:2rem 2rem 4rem}
   h1{font-family:'Poppins',sans-serif;font-weight:800;font-size:1.4rem;margin-bottom:.3rem}
   h2{font-family:'Poppins',sans-serif;font-weight:700;font-size:1rem;margin-bottom:.8rem}
   .sub{font-size:.85rem;color:var(--tinta-suave);margin-bottom:1.5rem}
@@ -56,10 +59,15 @@
   .vacio{color:var(--tinta-suave);font-size:.88rem;padding:1rem 0}
 
   /* ---------- Métricas ---------- */
-  .rejilla-metricas{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:1rem;margin-bottom:2rem}
+  /* Columnas explícitas y no auto-fit: con auto-fit, las 8 tarjetas caían 7 en
+     la primera fila y 1 huérfana en la segunda, que se lee como un error de
+     maquetación. En pasos fijos (4 → 2 → 1) siempre quedan filas completas. */
+  .rejilla-metricas{display:grid;grid-template-columns:repeat(4,1fr);gap:1rem;margin-bottom:2rem}
+  @media (max-width:900px){.rejilla-metricas{grid-template-columns:repeat(2,1fr)}}
+  @media (max-width:520px){.rejilla-metricas{grid-template-columns:1fr}}
   .metrica{background:var(--blanco);border:1px solid var(--regla);border-radius:var(--radio);
            box-shadow:var(--sombra);padding:1rem 1.1rem}
-  .metrica-valor{font-family:'Poppins',sans-serif;font-weight:700;font-size:1.6rem;line-height:1.1}
+  .metrica-valor{font-family:'Poppins',sans-serif;font-weight:700;font-size:clamp(1.15rem,1.6vw,1.6rem);line-height:1.15;word-break:break-word}
   .metrica-etiqueta{font-size:.75rem;color:var(--tinta-suave);margin-top:.25rem}
   .metrica-nota{font-size:.7rem;color:var(--tinta-suave);margin-top:.4rem;font-family:'IBM Plex Mono',monospace}
   .metrica.alerta .metrica-valor{color:var(--ambar-texto)}
@@ -81,7 +89,12 @@
 
   .archivo{background:var(--blanco);border:1px solid var(--regla);border-radius:var(--radio);
            box-shadow:var(--sombra);overflow-x:auto}
-  table{width:100%;border-collapse:collapse;min-width:860px}
+  table{width:100%;border-collapse:collapse}
+  /* Acotado a la tabla de cuentas, no a `table` en general: una regla
+     global de min-width rompe cualquier tabla que se agregue después
+     dentro de un contenedor angosto (fue justo lo que pasó en el
+     dashboard con las tablas de Contribuyentes). */
+  .archivo table{min-width:860px}
   thead th{text-align:left;font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;
            color:var(--tinta-suave);font-weight:600;padding:.7rem .9rem;border-bottom:1px solid var(--regla)}
   tbody td{padding:.7rem .9rem;border-bottom:1px dotted var(--regla);font-size:.86rem;vertical-align:middle}
@@ -285,8 +298,11 @@
 
   function desglose(titulo, obj, vacio) {
     var claves = Object.keys(obj || {});
+    // Orden por magnitud descendente, no alfabético: la pregunta que contesta
+    // un desglose es "¿cuál pesa más?", y en orden alfabético hay que leer
+    // todas las líneas y compararlas mentalmente para responderla.
     var lineas = claves.length
-      ? claves.sort().map(function (k) {
+      ? claves.sort(function (a, b) { return (obj[b] || 0) - (obj[a] || 0); }).map(function (k) {
           return '<div class="desglose-linea"><span>' + escapeHtml(etiquetaCanal(k)) +
                  '</span><span>' + escapeHtml(obj[k]) + '</span></div>';
         }).join("")
@@ -432,17 +448,25 @@
         filaDato("Facturas", c.num_facturas) +
       "</dl></div>" +
       bloqueLista("RFCs dados de alta", d.rfcs, function (r) {
-        return "<li><strong>" + escapeHtml(r.rfc) + "</strong> · " + escapeHtml(r.tipo) +
+        // "· Principal · principal": el alias suele ser "Principal" y la
+        // bandera es_principal añadía la misma palabra otra vez. Se marca
+        // entre paréntesis para que se lea como una propiedad y no como
+        // otro nombre.
+        return "<li><strong>" + escapeHtml(r.rfc) + "</strong> · " +
+          escapeHtml(r.tipo === "moral" ? "Persona moral" : "Persona física") +
           (r.alias ? " · " + escapeHtml(r.alias) : "") +
-          (r.es_principal ? " · principal" : "") + "</li>";
+          (r.es_principal ? " <em>(principal)</em>" : "") + "</li>";
       }, "Ninguno.") +
       bloqueLista("Correos autorizados", d.correos, function (x) {
         return "<li>" + escapeHtml(x.email) + (x.alias ? " · " + escapeHtml(x.alias) : "") + "</li>";
       }, "Ninguno: solo puede enviar desde su propio correo.") +
       bloqueLista("Últimas facturas", d.facturas, function (f) {
+        // etiquetaCanal traduce también los estatus (ver ETIQUETAS): sin esto
+        // se colaba el valor interno crudo a la pantalla -- "por_revisar" en
+        // vez de "Por revisar".
         return "<li>" + escapeHtml(fechaCorta(f.created_at)) + " · " +
           escapeHtml(f.emisor_nombre || "—") + " · " + escapeHtml(money(f.total)) +
-          " · " + escapeHtml(f.estatus) +
+          " · " + escapeHtml(etiquetaCanal(f.estatus)) +
           " · " + escapeHtml(etiquetaCanal(f.origen || "desconocido")) + "</li>";
       }, "Esta cuenta no ha registrado ninguna factura.") +
       '<div class="bloque">' + botonEstado + "</div>";

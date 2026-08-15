@@ -44,9 +44,48 @@
   .marca{display:flex;align-items:center;gap:.45rem;font-family:'Poppins',sans-serif;font-weight:700;font-size:1.15rem;letter-spacing:-.01em;color:var(--tinta)}
   .marca-isotipo{flex:none}
   .selector-anio{border:1px solid var(--regla);background:var(--papel);border-radius:var(--radio-sm);padding:.3rem .6rem;font-family:'IBM Plex Mono',monospace;font-size:.85rem}
+  /* Sin tope, un <select> se ancha hasta caber su opción más larga. "Todos los
+     contribuyentes" y los alias largos lo llevaban a ~400px: en una laptop de
+     1366px empujaba el bloque de identidad a una segunda fila, y en un
+     teléfono estiraba la PÁGINA ENTERA a 599px de ancho -- toda la app
+     scrolleaba de lado. Es la causa única de los dos síntomas. */
+  #selector-rfc{max-width:210px}
 
   /* ---------- Navegación de primer nivel (Resumen / Facturas / Contribuyentes) ---------- */
-  .tabs{display:flex;gap:.3rem}
+  /* flex-wrap: las 4 pestañas no caben en 390px y, sin envolver, "Ayuda"
+     se salía por la derecha arrastrando toda la página a scroll horizontal.
+     Una pestaña que se sale es además una que el usuario no encuentra. */
+  .tabs{display:flex;gap:.3rem;flex-wrap:wrap}
+
+  /* Escalón intermedio para laptops (~1280-1500px). Sin él, la suma de
+     marca + pestañas + selectores + identidad pasaba por unos 50px del ancho
+     disponible y el bloque de identidad caía a un segundo renglón alineado a
+     la derecha: se leía como un error de maquetación, no como una decisión.
+     Apretando espaciados --sin quitar ninguna información-- vuelve a caber en
+     un solo renglón. */
+  @media (min-width:641px) and (max-width:1500px){
+    .topbar{gap:.7rem;padding:.9rem 1rem}
+    .tab{padding:.4rem .6rem}
+    .identidad{gap:.5rem}
+    #selector-rfc{max-width:170px}
+  }
+  /* Por debajo de ~1366px no cabe todo en un renglón sin encoger los
+     controles hasta hacerlos incómodos. En vez de seguir apretando, la barra
+     pasa a DOS niveles explícitos, que además ordenan mejor la información:
+       nivel 1 -- marca + pestañas + identidad (lo de la cuenta)
+       nivel 2 -- ejercicio + contribuyente (lo que filtra la vista, pegado
+                  al contenido que filtra)
+     La diferencia con el estado anterior es que antes envolvía por accidente
+     --la identidad caía suelta a la derecha y se leía como un desajuste-- y
+     ahora el corte es intencional y cada nivel agrupa cosas afines. */
+  @media (min-width:641px) and (max-width:1365px){
+    .topbar{gap:.55rem .7rem}
+    .identidad{order:2}
+    .selectores-vista{order:3;flex-basis:100%;margin-top:.15rem}
+    /* En su propio renglón sobra ancho, así que el nombre del contribuyente
+       ya no tiene por qué salir recortado. */
+    #selector-rfc{max-width:300px}
+  }
   .tab{background:none;border:1px solid transparent;border-radius:var(--radio-sm);
        padding:.4rem .8rem;font-size:.85rem;font-weight:500;color:var(--tinta-suave)}
   .tab:hover{color:var(--tinta)}
@@ -55,16 +94,23 @@
      (ver mostrarPagina). */
   .selectores-vista{display:flex;gap:.6rem}
 
-  .identidad{margin-left:auto;display:flex;align-items:center;gap:.7rem;font-size:.8rem;color:var(--tinta-suave)}
-  .rfc-actual{font-family:'IBM Plex Mono',monospace}
-  .btn-plano{background:none;border:1px solid var(--regla);border-radius:var(--radio-sm);padding:.25rem .6rem;font-size:.75rem;color:var(--tinta-suave)}
+  .identidad{margin-left:auto;display:flex;align-items:center;gap:.7rem;font-size:.8rem;color:var(--tinta-suave);flex-wrap:wrap}
+  /* "RFC AUCD870504PU0" partido en dos renglones se lee como dos datos
+     distintos; es uno solo. */
+  .rfc-actual{font-family:'IBM Plex Mono',monospace;white-space:nowrap}
+  .btn-plano{background:none;border:1px solid var(--regla);border-radius:var(--radio-sm);padding:.25rem .6rem;font-size:.75rem;color:var(--tinta-suave);
+             /* Los hay <button> y <a> (el enlace a Admin). Sin esto el enlace
+                sale subrayado y con altura distinta, y la fila de controles se
+                ve desalineada aunque compartan la misma clase. */
+             text-decoration:none;display:inline-flex;align-items:center;white-space:nowrap}
   .btn-plano:hover{border-color:var(--tinta);color:var(--tinta)}
 
-  /* Sin tope de ancho a propósito: la tabla de facturas es lo que más se
-     beneficia del espacio en pantallas grandes. Las pantallas de acceso
-     (.acceso/.acceso-ancho) siguen angostas -- un formulario no necesita
-     estirarse, solo la vista principal del archivo. */
-  .contenido{margin:0;padding:2rem 2rem 4rem}
+  /* La tabla de facturas es lo que más se beneficia del espacio, así que el
+     tope es generoso (no los ~1100px de un texto): solo evita que en un
+     monitor de 27" las columnas queden separadas por medio metro de vacío.
+     Las pantallas de acceso (.acceso/.acceso-ancho) siguen angostas -- un
+     formulario no necesita estirarse. */
+  .contenido{max-width:1600px;margin-inline:auto;padding:2rem 2rem 4rem}
 
   /* ---------- Acceso ---------- */
   .acceso{max-width:380px;margin:4rem auto;background:var(--blanco);border:1px solid var(--regla);border-radius:var(--radio);box-shadow:var(--sombra);padding:2rem}
@@ -91,7 +137,7 @@
   #error-datos{margin:1.2rem 2rem 0}
 
   /* ---------- Aviso de RFC pendiente ---------- */
-  .aviso-rfc{background:var(--ambar-fondo);border:1px solid #F0CE95;border-left:4px solid var(--ambar);border-radius:0 var(--radio-corte) var(--radio-corte) 0;padding:1rem 1.2rem;margin-bottom:1.5rem}
+  .aviso-rfc{background:var(--ambar-fondo);border:1px solid #F0CE95;border-left:4px solid var(--ambar);border-radius:0 var(--radio-corte) var(--radio-corte) 0;padding:1rem 1.2rem;margin-bottom:1.5rem;max-width:820px}
   .aviso-rfc h2{font-family:'Poppins',sans-serif;font-weight:700;font-size:1rem;color:var(--ambar-texto);margin-bottom:.3rem}
   /* Informativo, no una advertencia -- usa verde (tarjetas de éxito), nunca
      ámbar: el brand book lo reserva para advertencias reales. */
@@ -149,12 +195,31 @@
   .tabla-rfcs th{text-align:left;font-size:.7rem;text-transform:uppercase;
                  letter-spacing:.06em;color:var(--tinta-suave);font-weight:600;
                  padding:.4rem .4rem .4rem 0;border-bottom:1px solid var(--regla)}
+  /* nowrap y no word-break: los puntos suspensivos de text-overflow solo
+     aparecen si el texto NO puede envolver. Con break-word el nombre largo
+     se repartía en varias líneas y luego se recortaba a media palabra, sin
+     ningún indicio de que continuaba. La etiqueta "Principal" es display:block
+     y sigue cayendo en su propio renglón. */
   .tabla-rfcs td{padding:.6rem .4rem .6rem 0;border-bottom:1px dotted var(--regla);
-                 vertical-align:middle;word-break:break-word}
-  .tabla-rfcs th:nth-child(1), .tabla-rfcs td:nth-child(1){width:29%}
-  .tabla-rfcs th:nth-child(2), .tabla-rfcs td:nth-child(2){width:17%}
-  .tabla-rfcs th:nth-child(3), .tabla-rfcs td:nth-child(3){width:34%}
-  .tabla-rfcs th:nth-child(4), .tabla-rfcs td:nth-child(4){width:20%;padding-right:0}
+                 vertical-align:middle;white-space:nowrap}
+  /* Estos porcentajes son para la tabla de RFCs, que tiene CUATRO columnas
+     (RFC, Tipo, Nombre, acciones). La de correos autorizados tiene tres, y
+     al heredarlos se llevaba 29+17+34 = 80% en sus tres columnas y dejaba la
+     de acciones fuera de la tarjeta: el botón "Quitar" simplemente no se
+     veía. Por eso van acotados a `.tabla-rfcs-4col` y la de correos declara
+     los suyos. */
+  .tabla-rfcs-4col th:nth-child(1), .tabla-rfcs-4col td:nth-child(1){width:29%}
+  .tabla-rfcs-4col th:nth-child(2), .tabla-rfcs-4col td:nth-child(2){width:17%}
+  .tabla-rfcs-4col th:nth-child(3), .tabla-rfcs-4col td:nth-child(3){width:34%}
+  .tabla-rfcs-4col th:nth-child(4), .tabla-rfcs-4col td:nth-child(4){width:20%;padding-right:0}
+  .tabla-rfcs-3col th:nth-child(1), .tabla-rfcs-3col td:nth-child(1){width:52%}
+  .tabla-rfcs-3col th:nth-child(2), .tabla-rfcs-3col td:nth-child(2){width:26%}
+  .tabla-rfcs-3col th:nth-child(3), .tabla-rfcs-3col td:nth-child(3){width:22%;padding-right:0}
+  /* Con table-layout:fixed el texto que no cabe se sale de su celda en vez de
+     recortarse: "Distribuidora Arca Continental" se cortaba a media palabra
+     contra el borde de la tarjeta, sin ningún indicio de que seguía. Los
+     puntos suspensivos lo dicen, y el title deja consultar el completo. */
+  .tabla-rfcs td, .tabla-rfcs th{overflow:hidden;text-overflow:ellipsis}
   .tabla-rfcs td:first-child{font-family:'IBM Plex Mono',monospace;font-size:.82rem}
   .tabla-rfcs td:last-child{text-align:right}
   .etiqueta-tipo{display:inline-block;white-space:nowrap;font-size:.72rem;font-weight:600;
@@ -176,7 +241,7 @@
                           margin:0 0 .5rem .1rem}
 
   /* ---------- Aviso de persona moral ---------- */
-  .aviso-moral{background:var(--morado-fondo);border:1px solid var(--morado-borde);border-left:4px solid var(--morado);
+  .aviso-moral{max-width:820px;background:var(--morado-fondo);border:1px solid var(--morado-borde);border-left:4px solid var(--morado);
                border-radius:0 var(--radio-corte) var(--radio-corte) 0;padding:1.1rem 1.3rem;margin-bottom:2rem}
   .aviso-moral h2{font-family:'Poppins',sans-serif;font-weight:700;font-size:1.15rem;color:var(--morado);
                   margin-bottom:.4rem}
@@ -185,7 +250,12 @@
                      color:var(--tinta);margin-top:.7rem}
 
   /* ---------- Cédula ---------- */
-  .cedula{background:var(--blanco);border:1px solid var(--regla);border-radius:var(--radio);box-shadow:var(--sombra);margin-bottom:2rem;overflow:hidden}
+  /* max-width propio, más chico que .contenido: es una lista de 7 conceptos
+     con su monto. Estirada a 1600px, el nombre queda en un extremo y la cifra
+     en el otro, y hay que recorrer la fila entera con la vista para saber
+     cuánto llevas en Médicos. La tabla de facturas sí quiere el ancho; una
+     cédula, no. */
+  .cedula{background:var(--blanco);border:1px solid var(--regla);border-radius:var(--radio);box-shadow:var(--sombra);margin-bottom:2rem;overflow:hidden;max-width:820px}
   .cedula-encabezado{display:flex;align-items:baseline;justify-content:space-between;gap:1rem;padding:1.1rem 1.5rem .6rem;flex-wrap:wrap}
   .cedula-titulo{font-family:'Poppins',sans-serif;font-weight:700;font-size:1.35rem}
   .cedula-nota{font-size:.8rem;color:var(--tinta-suave)}
@@ -224,8 +294,17 @@
 
   /* ---------- Tabla ---------- */
   .archivo{background:var(--blanco);border:1px solid var(--regla);border-radius:var(--radio);box-shadow:var(--sombra);overflow-x:auto}
-  table{width:100%;border-collapse:collapse;min-width:720px}
-  thead th{text-align:left;font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;color:var(--tinta-suave);font-weight:600;padding:.7rem .9rem;border-bottom:1px solid var(--regla)}
+  table{width:100%;border-collapse:collapse}
+  /* El min-width es SOLO para la tabla de facturas: son 9 columnas y por
+     debajo de 720px se aplastan hasta ser ilegibles, así que ahí se prefiere
+     scroll horizontal dentro de .archivo.
+     Estaba puesto en el selector `table` a secas, y por tanto también se lo
+     comían las tablas de Contribuyentes y Correos autorizados, que viven en
+     tarjetas de ~470px: quedaban de 720px con scroll interno, y su última
+     columna --la del botón "Quitar"-- caía fuera del área visible. El botón
+     existía y era funcional; simplemente no había forma de verlo. */
+  .archivo table{min-width:720px}
+  thead th{text-align:left;font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;color:var(--tinta-suave);font-weight:600;padding:.7rem .7rem;border-bottom:1px solid var(--regla)}
   .th-ordenable{cursor:pointer;user-select:none;white-space:nowrap}
   .th-ordenable:hover{color:var(--tinta)}
   .flecha-orden{display:inline-block;width:.9em;font-size:.85em;color:var(--verde)}
@@ -246,13 +325,26 @@
     .visor-pdf-fondo{padding:0}
     .visor-pdf-caja{width:100%;height:100%;border-radius:0}
   }
-  tbody td{padding:.75rem .9rem;border-bottom:1px dotted var(--regla);font-size:.88rem;vertical-align:middle}
+  tbody td{padding:.75rem .7rem;border-bottom:1px dotted var(--regla);font-size:.88rem;vertical-align:middle}
   tbody tr:last-child td{border-bottom:none}
   tbody tr:hover{background:var(--papel)}
   .fecha,.monto,.folio,.rfc-col{font-family:'IBM Plex Mono',monospace;font-size:.82rem}
   .monto{text-align:right;white-space:nowrap}
   .folio,.rfc-col{color:var(--tinta-suave)}
-  .emisor{font-weight:500}
+  /* Los nombres fiscales son larguísimos ("CONSULTORIO MEDICO DR. ALEJANDRO
+     RUIZ HERNANDEZ Y ASOCIADOS SC"). Sin tope se partían en 4 o 5 renglones y
+     cada fila quedaba de una altura distinta: el ojo pierde el renglón al
+     recorrer la tabla.
+     Una sola línea con puntos suspensivos, no dos: con -webkit-line-clamp
+     dentro de una celda de tabla el recorte no queda limpio (la altura de la
+     fila la deciden las otras columnas, así que la tercera línea asomaba
+     partida por la mitad). Una línea garantiza filas de altura idéntica, que
+     es justo lo que hace escaneable una tabla. El nombre completo sigue en el
+     title. */
+  .emisor{font-weight:500;max-width:20ch;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  /* Las acciones no deben decidir el ancho de la tabla ni saltar de renglón
+     cuando una factura tiene PDF y la de arriba no. */
+  .acciones{white-space:nowrap;text-align:right}
 
   .chip{display:inline-block;font-size:.72rem;font-weight:600;padding:.18rem .55rem;border-radius:var(--radio-pill);white-space:nowrap;background:var(--chip-fondo);color:var(--tinta-suave)}
   .chip.medicos{background:var(--chip-medicos-fondo);color:var(--chip-medicos-texto)}
@@ -306,7 +398,16 @@
   .btn-borrar-factura:hover:not(:disabled){border-color:var(--error);color:var(--error)}
 
   .fila-advertencia td{border-bottom:none;padding-bottom:.2rem}
-  .detalle-advertencia td{padding-top:0;font-size:.78rem;color:var(--ambar-texto)}
+  /* La fila de hallazgos pertenece a la factura de ARRIBA, pero al ocupar
+     todo el ancho con su caja pegada al margen izquierdo se leía como una
+     fila suelta más. Se le quita el borde que la separaba de su factura y se
+     sangra al nivel de la columna Emisor, que es donde el ojo ya está. */
+  .detalle-advertencia td{padding-top:0;padding-left:6.5rem;font-size:.78rem;color:var(--ambar-texto);border-bottom:1px dotted var(--regla)}
+  tbody tr.detalle-advertencia:hover{background:transparent}
+  /* Une visualmente la factura con su advertencia quitando la línea que las
+     separaba. Si un navegador no soporta :has(), lo único que pasa es que la
+     línea sigue ahí -- degrada sin romper nada. */
+  tbody tr:has(+ .detalle-advertencia) td{border-bottom:none}
   .detalle-advertencia .caja{background:var(--ambar-fondo);border-left:3px solid var(--ambar);border-radius:0 var(--radio-sm) var(--radio-sm) 0;padding:.5rem .8rem;display:inline-block;margin-right:.4rem}
 
   .pie{margin-top:1.5rem;font-size:.78rem;color:var(--tinta-suave);text-align:center}
@@ -324,10 +425,34 @@
        partido en dos líneas en pantallas angostas. */
     .fila-rfc{flex-direction:column;align-items:stretch}
     .fila-rfc input{min-width:0}
+
+    /* En un teléfono, los dos selectores ocupan su propio renglón y se
+       reparten el ancho disponible. El tope de 210px que necesitan en
+       escritorio aquí sobra: con 390px de pantalla dejaba al selector de
+       contribuyente saliéndose por la derecha y toda la página scrolleaba
+       de lado. min-width:0 es lo que permite que un flex item encoja por
+       debajo del ancho de su contenido. */
+    .selectores-vista{width:100%}
+    .selectores-vista select{flex:1;min-width:0}
+    #selector-rfc{max-width:none}
+
+    /* En un teléfono la barra superior llegaba a ocupar cuatro renglones
+       (marca / pestañas partidas en dos / selectores / identidad en dos),
+       unos 250px de los 844 de pantalla dedicados solo a controles. Apretando
+       el espaciado, las cuatro pestañas caben en un renglón --antes "Ayuda"
+       caía sola en el siguiente, que además la hacía parecer de otro grupo. */
+    .topbar{gap:.55rem;padding:.7rem 1rem}
+    .tab{padding:.35rem .5rem}
+    .identidad{gap:.4rem}
   }
 
   /* ---------- Página de Ayuda ---------- */
-  .tarjetas-ayuda{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:1.5rem;margin:1.5rem 0}
+  /* Tres columnas explícitas y no auto-fit: con minmax(280px) solo cabían
+     dos por fila dentro de la tarjeta de 900px y la tercera quedaba sola
+     abajo, como si sobrara. Son tres formas equivalentes de enviar una
+     factura y deben leerse como tres opciones a la par. */
+  .tarjetas-ayuda{display:grid;grid-template-columns:repeat(3,1fr);gap:1.2rem;margin:1.5rem 0}
+  @media (max-width:820px){.tarjetas-ayuda{grid-template-columns:1fr}}
   .tarjeta-metodo{background:var(--blanco);border:1px solid var(--regla);border-radius:var(--radio);padding:1.5rem;display:flex;flex-direction:column}
   .icono-metodo{font-size:2.5rem;margin-bottom:.8rem}
   .tarjeta-metodo h2{font-family:'Poppins',sans-serif;font-weight:700;font-size:1.1rem;margin-bottom:.6rem;color:var(--tinta)}
@@ -536,9 +661,11 @@
         <input type="search" id="buscador" placeholder="Buscar por emisor, RFC o folio fiscal"
                aria-label="Buscar facturas">
       </div>
-      <button type="button" class="btn-accion" id="btn-actualizar" title="Volver a cargar tus facturas">
-        Actualizar
-      </button>
+      <!-- Aquí había un segundo "Actualizar". Se retiró: la topbar ya tiene
+           uno global que recarga la pestaña activa (y hace exactamente lo
+           mismo que hacía este), y dos botones idénticos a dos centímetros
+           uno del otro obligan al usuario a preguntarse en qué se diferencian.
+           Ver btn-actualizar-global. -->
       <button type="button" class="btn-accion btn-accion-primario" id="btn-subir-factura">
         Subir factura
       </button>
@@ -587,7 +714,7 @@
       <div id="error-rfcs" class="error" hidden></div>
 
       <div class="tabla-rfcs-wrap">
-        <table class="tabla-rfcs">
+        <table class="tabla-rfcs tabla-rfcs-4col">
           <thead>
             <tr><th>RFC</th><th>Tipo</th><th>Nombre</th><th></th></tr>
           </thead>
@@ -632,7 +759,7 @@
       <div id="error-correos" class="error" hidden></div>
 
       <div class="tabla-rfcs-wrap">
-        <table class="tabla-rfcs">
+        <table class="tabla-rfcs tabla-rfcs-3col">
           <thead>
             <tr><th>Correo</th><th>Nombre</th><th></th></tr>
           </thead>
@@ -697,7 +824,7 @@
           <p>Las facturas por WhatsApp se procesan al instante. Las de correo en menos de un minuto. Las que subes por la web aparecen inmediatamente.</p>
         </div>
         <div class="faq-item">
-          <h3>¿Puedo reenvigar facturas desde otro correo?</h3>
+          <h3>¿Puedo reenviar facturas desde otro correo?</h3>
           <p>Sí. Ve a Contribuyentes → Correos autorizados y agrega las direcciones desde las que enviarás facturas.</p>
         </div>
         <div class="faq-item">
@@ -1132,7 +1259,7 @@
           (r.es_principal ? '<span class="marca-principal">Principal</span>' : '') + '</td>' +
         '<td><span class="etiqueta-tipo ' + r.tipo + '">' +
           (r.tipo === "moral" ? "Moral" : "Física") + '</span></td>' +
-        '<td>' + escapeHtml(r.alias || "—") + '</td>' +
+        '<td title="' + escapeHtml(r.alias || "") + '">' + escapeHtml(r.alias || "—") + '</td>' +
         '<td>' + (r.es_principal
           ? ''
           : '<button class="btn-quitar" data-id="' + r.id + '">Quitar</button>') + '</td>' +
@@ -1222,8 +1349,8 @@
     }
     tb.innerHTML = correosAutorizados.map(function (c) {
       return '<tr>' +
-        '<td>' + escapeHtml(c.email) + '</td>' +
-        '<td>' + escapeHtml(c.alias || "—") + '</td>' +
+        '<td title="' + escapeHtml(c.email) + '">' + escapeHtml(c.email) + '</td>' +
+        '<td title="' + escapeHtml(c.alias || "") + '">' + escapeHtml(c.alias || "—") + '</td>' +
         '<td><button class="btn-quitar" data-id="' + c.id + '">Quitar</button></td>' +
       '</tr>';
     }).join("");
@@ -1387,16 +1514,6 @@
     localStorage.setItem(CLAVE_ULTIMA_VISTA, ultimaVistaFacturas);
     aplicarFiltros();
   }
-
-  $("btn-actualizar").addEventListener("click", async function () {
-    var btn = $("btn-actualizar");
-    btn.disabled = true;
-    try {
-      await refrescarFacturasYResumen();
-    } finally {
-      btn.disabled = false;
-    }
-  });
 
   /** Botón "Actualizar" de la topbar (Fase M22): visible en cualquier
    * pestaña, recarga lo que corresponda a la que esté activa en ese
@@ -1712,7 +1829,10 @@
       var marca = est[0] === "advertencia" ? ' class="fila-advertencia"' : '';
       var fila = '<tr' + marca + '>' +
         '<td class="fecha">' + fechaCorta(inv.fecha_emision) + '</td>' +
-        '<td class="emisor">' + escapeHtml(inv.emisor_nombre) + '</td>' +
+        // title: el nombre se recorta a dos líneas en pantalla (ver .emisor),
+        // así que el completo tiene que seguir siendo consultable.
+        '<td class="emisor" title="' + escapeHtml(inv.emisor_nombre) + '">' +
+          escapeHtml(inv.emisor_nombre) + '</td>' +
         '<td class="rfc-col">' + escapeHtml(inv.receptor_rfc || "—") + '</td>' +
         '<td class="folio">' + escapeHtml(folioCorto(inv.uuid)) +
           (inv.created_at && inv.created_at > ultimaVistaFacturas
