@@ -1,0 +1,41 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx --no-install playwright --version)",
+      "Bash(python3 -c \"import playwright; print\\('playwright OK', playwright.__version__ if hasattr\\(playwright,'__version__'\\) else ''\\)\")",
+      "Bash(python3 -c ' *)",
+      "Bash(python3 -m playwright install chromium)",
+      "Bash(grep -n \"return { year: y, categorias\" -B 12 supabase/functions/_shared/invoices_api.ts)",
+      "Bash(python3 shoot.py shots)",
+      "Bash(python3 -m http.server 8899 --bind 127.0.0.1)",
+      "Bash(curl -s -o /dev/null -w \"servidor local: %{http_code}\\\\n\" http://127.0.0.1:8899/dashboard.html)",
+      "Bash(python3 shoot.py shots2)",
+      "Bash(python3 shoot.py shots3)",
+      "Bash(python3 shoot.py shots4)",
+      "Bash(python3 shoot.py shots5)",
+      "Bash(node --check __TRACKED_VAR__/chk.js)",
+      "Bash(rm -f __TRACKED_VAR__/chk.js)",
+      "Bash(python3 shoot.py shots6)",
+      "Bash(python3 shoot.py shots7)",
+      "Bash(python3 filas.py)",
+      "Bash(python3 shoot.py shots8)",
+      "Bash(python3 shoot.py final2)",
+      "Bash(pkill -f \"http.server 8899\")",
+      "Bash(git reset *)",
+      "Bash(rm -f __TRACKED_VAR__/msg.txt)",
+      "Bash(git fetch *)",
+      "Bash(curl -sL \"https://app.facturino.mx/dashboard.html?b=$\\(date +%s\\)\" -o /tmp/v.html)",
+      "Read(//tmp/**)",
+      "Bash(rm -f /tmp/v.html)",
+      "Bash(python3 velo.py)",
+      "Bash(python3 shoot.py post-velo)",
+      "Bash(python3 huerfanas.py)",
+      "Bash(python3 pruebas/revisar_ui.py)",
+      "Bash(echo \"codigo de salida: $?\")",
+      "Bash(curl -sL \"https://app.facturino.mx/admin.html?b=$\\(date +%s\\)\" -o /tmp/a.html)",
+      "Bash(rm -f /tmp/v.html /tmp/a.html)",
+      "Bash(grep -n '\\\\$\\(\"btn-actualizar-global\"\\).addEventListener' -A 22 web/dashboard.html)",
+      "Bash(BASE=https://app.facturino.mx python3 pruebas/revisar_ui.py)"
+    ]
+  }
+}
