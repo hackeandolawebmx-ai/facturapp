@@ -23,3 +23,7 @@ logs/
 .supabase/
 supabase/.temp/
 node_modules/
+
+# Capturas de la revision visual (web/pruebas/revisar_ui.py) -- se
+# regeneran en cada corrida, no tiene sentido versionarlas.
+web/pruebas/capturas/

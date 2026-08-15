@@ -40,6 +40,28 @@
   @media (prefers-reduced-motion: reduce){*{transition:none!important;animation:none!important}}
   [hidden]{display:none!important}
 
+  /* ---------- Velo de carga ----------
+     Cubre la página desde el primer pintado hasta que hay datos que mostrar.
+     Sin él, entrar() revela el armazón vacío y lo va rellenando: se ve como
+     si la app se hubiera roto y luego se arreglara sola. */
+  .velo-carga{position:fixed;inset:0;z-index:200;background:var(--papel);
+              display:flex;flex-direction:column;align-items:center;justify-content:center;
+              gap:1.1rem;transition:opacity .28s ease}
+  /* Se desvanece en vez de desaparecer de golpe -- el corte seco se lee como
+     un parpadeo, que es lo que estamos quitando. */
+  .velo-carga.saliendo{opacity:0;pointer-events:none}
+  .velo-marca{display:flex;align-items:center;gap:.55rem;font-family:'Poppins',sans-serif;
+              font-weight:700;font-size:1.5rem;letter-spacing:-.01em;color:var(--tinta)}
+  .velo-marca svg{animation:velo-latido 1.5s ease-in-out infinite}
+  @keyframes velo-latido{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.09);opacity:.72}}
+  .velo-barra{width:118px;height:3px;border-radius:var(--radio-pill);background:var(--regla);overflow:hidden}
+  .velo-barra span{display:block;height:100%;width:42%;border-radius:var(--radio-pill);
+                   background:var(--verde);animation:velo-desliza 1.15s ease-in-out infinite}
+  @keyframes velo-desliza{0%{transform:translateX(-110%)}100%{transform:translateX(350%)}}
+  /* Con "reducir movimiento" el global de más arriba apaga las animaciones;
+     la barra quedaría como un trozo fijo a la izquierda, así que se llena. */
+  @media (prefers-reduced-motion: reduce){.velo-barra span{width:100%}}
+
   .topbar{display:flex;align-items:center;gap:1rem;padding:.9rem 1.5rem;border-bottom:1px solid var(--regla);background:var(--blanco);flex-wrap:wrap}
   .marca{display:flex;align-items:center;gap:.45rem;font-family:'Poppins',sans-serif;font-weight:700;font-size:1.15rem;letter-spacing:-.01em;color:var(--tinta)}
   .marca-isotipo{flex:none}
@@ -473,6 +495,26 @@
 </style>
 </head>
 <body>
+
+<!-- ---------------- Velo de carga ----------------
+     Va en el HTML y VISIBLE por defecto, no lo crea el JS: si dependiera del
+     script, entre que el navegador pinta el documento y el script corre
+     habría justamente el parpadeo en blanco que esto viene a evitar.
+     Lo oculta ocultarVelo() -- ver el arranque al final del script. -->
+<div class="velo-carga" id="velo-carga">
+  <div class="velo-marca">
+    <svg width="34" height="34" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+      <path d="M4 6a4 4 0 0 1 4-4h16a4 4 0 0 1 4 4v14a4 4 0 0 1-4 4H12l-6 6V6Z" fill="#2AB176"/>
+      <rect x="10" y="7" width="12" height="15" rx="1.5" fill="#fff"/>
+      <line x1="12.5" y1="11" x2="19.5" y2="11" stroke="#172238" stroke-width="1.4" stroke-linecap="round"/>
+      <line x1="12.5" y1="14.5" x2="19.5" y2="14.5" stroke="#172238" stroke-width="1.4" stroke-linecap="round"/>
+      <line x1="12.5" y1="18" x2="16.5" y2="18" stroke="#172238" stroke-width="1.4" stroke-linecap="round"/>
+      <path d="M24.5 2.5 25.6 5l2.5 1.1-2.5 1.1-1.1 2.5-1.1-2.5L21 6.1l2.4-1.1 1.1-2.5Z" fill="#F8A312"/>
+    </svg>
+    Facturino
+  </div>
+  <div class="velo-barra" role="status" aria-label="Cargando"><span></span></div>
+</div>
 
 <!-- ---------------- Pantalla de acceso ---------------- -->
 <section id="pantalla-acceso" class="acceso" hidden>
@@ -930,8 +972,38 @@
 
   function $(id) { return document.getElementById(id); }
 
+  // ---- Velo de carga -------------------------------------------------------
+
+  var veloOculto = false;
+
+  /** Retira el velo. Idempotente: se llama desde varios caminos (login,
+   * alta, sesión inválida, datos ya cargados) y cualquiera puede llegar
+   * primero. */
+  function ocultarVelo() {
+    if (veloOculto) return;
+    veloOculto = true;
+    var velo = $("velo-carga");
+    if (!velo) return;
+    velo.classList.add("saliendo");
+    // Se retira del DOM al terminar la transición: dejarlo con opacity:0
+    // encima de la app seguiría capturando clics si algo tocara
+    // pointer-events más adelante.
+    setTimeout(function () { velo.hidden = true; }, 320);
+  }
+
+  // Red de seguridad: si una petición se queda colgada o algo falla por un
+  // camino que no previmos, el velo NO puede quedarse tapando la app para
+  // siempre. A los 10s se retira pase lo que pase -- mejor un armazón vacío,
+  // que al menos permite navegar, que un logo eterno.
+  setTimeout(ocultarVelo, 10000);
+
   function mostrarSolo(id) {
     PANTALLAS.forEach(function (p) { $(p).hidden = (p !== id); });
+    // Las pantallas de acceso/alta/cambio no esperan datos: en cuanto se
+    // deciden, ya son la versión final y el velo sobra. El armazón (app-shell)
+    // es el único que se muestra vacío y se rellena después, así que ese lo
+    // destapa entrar() cuando termina de cargar.
+    if (id !== "app-shell") ocultarVelo();
   }
 
   /** Cambia de página dentro del shell (Resumen / Facturas / Contribuyentes).
@@ -1122,9 +1194,17 @@
     mostrarPagina("resumen");
     prepararSelectorAnio();
     prepararSelectorMes();
-    await cargarPerfil();
-    await cargarRfcs();
-    await cargarDatos();
+    try {
+      await cargarPerfil();
+      await cargarRfcs();
+      await cargarDatos();
+    } finally {
+      // En `finally` y no después del último await: si una carga falla, el
+      // velo tiene que retirarse igual. Si no, un error de red dejaría al
+      // usuario mirando el logo indefinidamente en vez de ver el mensaje de
+      // error que sí se pintó debajo.
+      ocultarVelo();
+    }
   }
 
   function prepararSelectorAnio() {
